@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="moth-token" content="__TOKEN__">
+  <title>Moth — Website security</title>
+  <link rel="icon" href="/static/moth.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/i18n.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Moth home"><img src="/static/moth.svg" width="38" height="38" alt=""><span>moth<span class="brand-dot">.</span></span></a>
+    <div class="side-label" data-i18n="workspace"></div>
+    <nav aria-label="Main"><button class="nav active" data-page="scan"><span>↗</span><span data-i18n="assessment"></span></button><button class="nav" data-page="tools"><span>⊞</span><span data-i18n="tools"></span><small>10</small></button><button class="nav" data-page="history"><span>◷</span><span data-i18n="history"></span></button></nav>
+    <div class="side-bottom"><div class="local-light"><i></i><span data-i18n="local"></span></div><p data-i18n="local_note"></p><span class="version">MOTH / v0.1.0</span></div>
+  </aside>
+  <main>
+    <header><span class="breadcrumb">MOTH <span>/</span> <span id="page-label"></span></span><label class="language"><span aria-hidden="true">◎</span><select id="language" aria-label="Language"><option value="en">English</option><option value="ro">Română</option><option value="ru">Русский</option></select></label></header>
+    <div id="toast" role="status" hidden></div>
+    <section id="scan-page" class="page">
+      <div class="eyebrow" data-i18n="eyebrow"></div><h1 data-i18n="headline"></h1><p class="intro" data-i18n="intro"></p>
+      <div class="scan-layout"><div>
+        <form id="scan-form" class="panel target-panel">
+          <div class="panel-head"><span class="step-number">01</span><h2 data-i18n="target"></h2><span class="pill" data-i18n="basic_included"></span></div>
+          <label class="field-label" for="target" data-i18n="website"></label><div class="url-input"><span aria-hidden="true">↗</span><input id="target" name="target" type="text" autocomplete="url" placeholder="https://your-website.com" required maxlength="2048"></div>
+          <p class="field-note" data-i18n="scope_note"></p>
+          <details class="module-picker"><summary><span data-i18n="extra_tools"></span><span id="selected-count">0</span></summary><div id="scan-tools"></div><p class="field-note" data-i18n="install_note"></p></details>
+          <label class="check"><input type="checkbox" id="authorized" required><span data-i18n="authorized"></span></label>
+          <label class="check lab"><input type="checkbox" id="lab"><span data-i18n="lab"></span></label>
+          <button class="primary start" id="start-button" type="submit"><span data-i18n="start"></span><span>↗</span></button>
+        </form>
+        <div id="result-area" hidden><div class="result-heading"><h2 data-i18n="results"></h2><div class="actions"><button id="export-html" class="secondary">HTML ↓</button><button id="export-json" class="secondary">JSON ↓</button></div></div><div id="summary"></div><div id="scan-errors"></div><div id="findings"></div></div>
+      </div><aside class="right-column">
+        <div class="panel overview"><div class="panel-head"><span class="step-number">02</span><h2 data-i18n="overview"></h2></div><div id="progress-icon" class="orbit"><img src="/static/moth.svg" width="46" height="46" alt=""></div><h3 id="progress-title"></h3><p id="progress-description"></p><progress id="progress" max="100" value="0" hidden></progress><div id="step-list"></div><button id="stop-button" class="secondary danger" hidden data-i18n="stop"></button></div>
+        <div class="coverage"><span class="tiny-icon">◇</span><h3 data-i18n="coverage_title"></h3><p data-i18n="coverage_note"></p></div>
+      </aside></div>
+    </section>
+    <section id="tools-page" class="page" hidden><div class="eyebrow" data-i18n="modules_eyebrow"></div><h1 data-i18n="tools_title"></h1><p class="intro" data-i18n="tools_intro"></p><div id="tool-grid"></div></section>
+    <section id="history-page" class="page" hidden><div class="eyebrow" data-i18n="history_eyebrow"></div><h1 data-i18n="history_title"></h1><p class="intro" data-i18n="history_intro"></p><div id="history-list"></div></section>
+    <footer><span data-i18n="footer"></span><span>MADE TO UNDERSTAND.</span></footer>
+  </main>
+</body></html>

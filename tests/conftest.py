@@ -1,0 +1,13 @@
+import os
+import tempfile
+
+_data = tempfile.TemporaryDirectory(prefix="moth-tests-")
+os.environ["MOTH_DATA_DIR"] = _data.name
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_db(monkeypatch, tmp_path):
+    from moth import storage
+    monkeypatch.setattr(storage, "DATA", tmp_path)

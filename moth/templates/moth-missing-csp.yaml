@@ -1,0 +1,26 @@
+id: moth-missing-csp
+info:
+  name: Content Security Policy header not observed
+  author: moth
+  severity: info
+  description: No enforced CSP header was observed. This does not prove XSS and a meta policy may exist.
+  remediation: Review the page and deploy a suitable Content-Security-Policy after compatibility testing.
+  tags: moth,config
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+    redirects: false
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "text/html"
+        case-insensitive: true
+      - type: word
+        part: header
+        words:
+          - "content-security-policy:"
+        case-insensitive: true
+        negative: true
