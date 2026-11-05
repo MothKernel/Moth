@@ -25,7 +25,9 @@ def test_system_tools_are_used_before_managed_copies(monkeypatch, tmp_path, tool
         executable(tools.python_bin(managed / tool / "venv"))
         (managed / tool / "ready.json").write_text("{}")
     monkeypatch.setenv("PATH", str(tmp_path))
-    assert tools.command(tool) == [str(binary)]
+    detected = tools.command(tool)
+    assert len(detected) == 1
+    assert Path(detected[0]) == binary
 
 
 def test_user_go_bin_detected_without_shell_path(monkeypatch, tmp_path):
