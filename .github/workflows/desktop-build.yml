@@ -1,0 +1,25 @@
+name: Desktop build
+on: [push, workflow_dispatch]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt "pyinstaller>=6.15,<7"
+      - run: python -m PyInstaller --noconfirm Moth.spec
+      - name: Smoke-test native executable
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MOTH_DATA_DIR: ${{ runner.temp }}/moth-smoke
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath dist/Moth/Moth.exe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Moth.exe failed with exit code $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Moth-Windows
+          path: dist/Moth/
+          retention-days: 14

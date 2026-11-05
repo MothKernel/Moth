@@ -2,9 +2,9 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 if [[ ! -x .venv/bin/python ]]; then
-  python3 -m venv .venv
+  python3 -m venv --system-site-packages .venv
 fi
-if ! .venv/bin/python -c 'import fastapi, uvicorn' >/dev/null 2>&1; then
+if ! .venv/bin/python -c 'from PySide6 import QtWidgets' >/dev/null 2>&1; then
   .venv/bin/python -m pip install -r requirements.txt
 fi
 exec .venv/bin/python main.py "$@"

@@ -1,5 +1,4 @@
-"use strict";
-window.MOTH_LANG = {
+{
   "en": {
     "scan_in_progress": "Finish or stop the current assessment before opening another one.",
     "workspace": "WORKSPACE",
@@ -27,7 +26,7 @@ window.MOTH_LANG = {
     "coverage_note": "Automated checks have limited coverage. No findings does not mean a website is secure. Deeper tests may change application behavior.",
     "modules_eyebrow": "YOUR SECURITY TOOLKIT",
     "tools_title": "The right tools, when you need them.",
-    "tools_intro": "Ten integrations. Install modules individually; Moth checks what is available on this computer.",
+    "tools_intro": "Ten integrations. Install optional tools directly from this desktop application.",
     "history_eyebrow": "PREVIOUS ASSESSMENTS",
     "history_title": "A record of what you’ve checked.",
     "history_intro": "Open a previous assessment to review findings or export a report.",
@@ -95,7 +94,20 @@ window.MOTH_LANG = {
     "progress_label": "Assessment progress",
     "select_tools": "Select installed tools",
     "not_scanned": "Not scanned",
-    "report_note": "HTML reports can be printed to PDF from your browser."
+    "report_note": "Export the report as HTML or JSON using the buttons above.",
+    "desktop_local": "Desktop application · local data",
+    "severity": "Severity",
+    "status": "Status",
+    "created": "Created (UTC)",
+    "open_assessment": "Open assessment",
+    "select_finding": "Select a finding to see its explanation.",
+    "no_assessment": "Run or open an assessment first.",
+    "save_report": "Save report",
+    "report_saved": "Report saved",
+    "stop_close": "Stop the running assessment and close Moth? The window will close after the worker stops.",
+    "install_close": "A tool installation is running. Closing may interrupt it; you can retry installation next time. Close anyway?",
+    "create_shortcut": "Desktop shortcut",
+    "shortcut_created": "Desktop shortcut created"
   },
   "ro": {
     "scan_in_progress": "Încheie sau oprește evaluarea curentă înainte de a deschide alta.",
@@ -124,7 +136,7 @@ window.MOTH_LANG = {
     "coverage_note": "Verificările automate au acoperire limitată. Absența constatărilor nu dovedește siguranța site-ului. Testele aprofundate pot modifica comportamentul aplicației.",
     "modules_eyebrow": "TRUSA TA DE SECURITATE",
     "tools_title": "Instrumentele potrivite, când ai nevoie.",
-    "tools_intro": "Zece integrări. Instalează modulele separat; Moth verifică ce este disponibil pe calculator.",
+    "tools_intro": "Zece integrări. Instalează instrumentele opționale direct din acest program desktop.",
     "history_eyebrow": "EVALUĂRI ANTERIOARE",
     "history_title": "Istoricul verificărilor tale.",
     "history_intro": "Deschide o evaluare pentru a vedea constatările sau a exporta raportul.",
@@ -192,7 +204,20 @@ window.MOTH_LANG = {
     "progress_label": "Progresul evaluării",
     "select_tools": "Alege instrumentele instalate",
     "not_scanned": "Nescanat",
-    "report_note": "Raportul HTML poate fi salvat ca PDF prin imprimarea din browser."
+    "report_note": "Exportă raportul ca HTML sau JSON folosind butoanele de mai sus.",
+    "desktop_local": "Program desktop · date locale",
+    "severity": "Severitate",
+    "status": "Stare",
+    "created": "Data (UTC)",
+    "open_assessment": "Deschide evaluarea",
+    "select_finding": "Selectează o constatare pentru explicații.",
+    "no_assessment": "Pornește sau deschide mai întâi o evaluare.",
+    "save_report": "Salvează raportul",
+    "report_saved": "Raport salvat",
+    "stop_close": "Oprești evaluarea în curs și închizi Moth? Fereastra se va închide după oprirea procesului.",
+    "install_close": "Se instalează un instrument. Închiderea poate întrerupe instalarea; o poți relua ulterior. Închizi programul?",
+    "create_shortcut": "Scurtătură desktop",
+    "shortcut_created": "Scurtătură desktop creată"
   },
   "ru": {
     "scan_in_progress": "Завершите или остановите текущую проверку, прежде чем открывать другую.",
@@ -221,7 +246,7 @@ window.MOTH_LANG = {
     "coverage_note": "Охват автоматических проверок ограничен. Отсутствие замечаний не доказывает безопасность сайта. Углублённые тесты могут изменить поведение приложения.",
     "modules_eyebrow": "ВАШ НАБОР ИНСТРУМЕНТОВ",
     "tools_title": "Нужные инструменты в нужный момент.",
-    "tools_intro": "Десять интеграций. Устанавливайте модули отдельно; Moth проверяет их наличие на компьютере.",
+    "tools_intro": "Десять интеграций. Устанавливайте дополнительные инструменты прямо из настольной программы.",
     "history_eyebrow": "ПРЕДЫДУЩИЕ ПРОВЕРКИ",
     "history_title": "История ваших проверок.",
     "history_intro": "Откройте проверку, чтобы изучить результаты или скачать отчёт.",
@@ -289,6 +314,19 @@ window.MOTH_LANG = {
     "progress_label": "Ход проверки",
     "select_tools": "Выберите установленные инструменты",
     "not_scanned": "Не сканировалось",
-    "report_note": "HTML-отчёт можно сохранить в PDF через печать в браузере."
+    "report_note": "Экспортируйте отчёт в HTML или JSON кнопками выше.",
+    "desktop_local": "Настольная программа · локальные данные",
+    "severity": "Важность",
+    "status": "Статус",
+    "created": "Дата (UTC)",
+    "open_assessment": "Открыть проверку",
+    "select_finding": "Выберите замечание для просмотра объяснения.",
+    "no_assessment": "Сначала запустите или откройте проверку.",
+    "save_report": "Сохранить отчёт",
+    "report_saved": "Отчёт сохранён",
+    "stop_close": "Остановить текущую проверку и закрыть Moth? Окно закроется после остановки процесса.",
+    "install_close": "Идёт установка инструмента. Закрытие может прервать её; установку можно повторить позже. Всё равно закрыть?",
+    "create_shortcut": "Создать ярлык",
+    "shortcut_created": "Ярлык создан"
   }
-};
+}

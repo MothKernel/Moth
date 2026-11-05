@@ -12,6 +12,7 @@ from .config import ROOT
 from .findings import finding
 from .targets import fetch, normalize, resolve
 from .tools import command
+from .processes import external_environment, no_console_flags
 
 
 class Cancelled(Exception):
@@ -22,10 +23,10 @@ def execute(args, directory, cancel, timeout=180, stdin=None, accepted=(0,)):
     """File-backed output avoids pipe deadlocks; process groups support cancellation."""
     log = directory / "stdout.log"
     error = directory / "stderr.log"
-    kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | no_console_flags()}
     with log.open("wb") as out, error.open("wb") as err:
         process = subprocess.Popen(args, cwd=directory, stdin=subprocess.PIPE if stdin else subprocess.DEVNULL,
-                                   stdout=out, stderr=err, **kwargs)
+                                   stdout=out, stderr=err, env=external_environment(), **kwargs)
         if stdin:
             try:
                 process.stdin.write(stdin.encode())
@@ -49,7 +50,7 @@ def execute(args, directory, cancel, timeout=180, stdin=None, accepted=(0,)):
         finally:
             if process.poll() is None:
                 if os.name == "nt":
-                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, timeout=15)
+                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, timeout=15, creationflags=no_console_flags())
                 else:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
@@ -255,7 +256,7 @@ def run_tool(tool, url, directory, cancel, allow_private=False):
     finally:
         if tool == "zap":
             # docker client termination alone does not stop the container.
-            subprocess.run([cmd[0], "rm", "-f", "moth-" + directory.parent.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+            subprocess.run([cmd[0], "rm", "-f", "moth-" + directory.parent.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, env=external_environment(), creationflags=no_console_flags())
         # Raw output may contain cookies, request material or URLs with tokens.
         for path in directory.rglob("*"):
             if path.is_file():

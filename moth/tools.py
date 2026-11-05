@@ -14,6 +14,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from .config import TOOLS
+from .processes import external_environment, no_console_flags
 
 PD = ("httpx", "nuclei", "katana", "dnsx", "subfinder")
 REGISTRY = [
@@ -31,6 +32,26 @@ REGISTRY = [
 STATE = {}
 LOCK = threading.Lock()
 EXE = ".exe" if os.name == "nt" else ""
+
+
+def python_runtime():
+    """A frozen application is not a Python CLI; never invoke itself with -m venv."""
+    if not getattr(sys, "frozen", False):
+        return [sys.executable]
+    candidates = []
+    for name in (("py", "python", "python3") if os.name == "nt" else ("python3", "python")):
+        path = shutil.which(name)
+        if path and "windowsapps" not in path.lower() and Path(path).resolve() != Path(sys.executable).resolve():
+            candidates.append([path, "-3"] if name == "py" else [path])
+    for candidate in candidates:
+        try:
+            result = subprocess.run(candidate + ["-I", "-c", "import sys,venv; assert sys.version_info >= (3,11)"],
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8, env=external_environment(), creationflags=no_console_flags())
+            if result.returncode == 0:
+                return candidate
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None
 
 
 def metadata(tool):
@@ -92,6 +113,12 @@ def catalog():
             row.update(status="prerequisite", message="Install and start Docker Desktop/Engine first.")
         if identifier == "nmap" and not ready:
             row.update(status="manual", message="Use the official installer; redistribution requires a license review.")
+        if identifier in ("sslyze", "wafw00f") and not ready and getattr(sys, "frozen", False):
+            # Cache the bounded runtime probe; do not spawn processes on every UI refresh.
+            if not hasattr(catalog, "python_available"):
+                catalog.python_available = bool(python_runtime())
+            if not catalog.python_available:
+                row.update(status="prerequisite", message="Install Python 3.11+ to enable this optional Python-based scanner.", url="https://www.python.org/downloads/")
         rows.append(row)
     return rows
 
@@ -168,7 +195,7 @@ def install_pd(tool, folder):
 def run_install(args, timeout=600):
     """Installer output stays local, bounded on read; no shell interpolation."""
     with tempfile.TemporaryFile() as log:
-        process = subprocess.Popen(args, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        process = subprocess.Popen(args, stdout=log, stderr=log, stdin=subprocess.DEVNULL, env=external_environment(), creationflags=no_console_flags())
         try:
             code = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -244,9 +271,12 @@ def install(tool):
         elif tool in ("sslyze", "wafw00f"):
             env = folder / "venv"
             if not python_bin(env).exists():
-                run_install([sys.executable, "-m", "venv", str(env)])
+                runtime = python_runtime()
+                if runtime is None:
+                    raise ValueError("Install Python 3.11+ to enable this optional scanner.")
+                run_install(runtime + ["-m", "venv", str(env)])
             run_install([str(python_bin(env)), "-m", "pip", "install", "--disable-pip-version-check", tool])
-            version = subprocess.check_output([str(python_bin(env)), "-c", "import importlib.metadata, sys; print(importlib.metadata.version(sys.argv[1]))", tool], timeout=20, text=True).strip()
+            version = subprocess.check_output([str(python_bin(env)), "-c", "import importlib.metadata, sys; print(importlib.metadata.version(sys.argv[1]))", tool], timeout=20, text=True, env=external_environment()).strip()
             (folder / "ready.json").write_text(json.dumps({"source": "PyPI", "package": tool, "version": version}))
         elif tool == "retire":
             install_node()
@@ -266,7 +296,7 @@ def install(tool):
                 raise ValueError("Docker Desktop/Engine must be installed and running first.")
             image = "ghcr.io/zaproxy/zaproxy:stable"
             run_install([docker, "pull", image], timeout=1200)
-            digest = subprocess.check_output([docker, "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"], timeout=20, text=True).strip()
+            digest = subprocess.check_output([docker, "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"], timeout=20, text=True, env=external_environment()).strip()
             if not digest.startswith("ghcr.io/zaproxy/zaproxy@sha256:"):
                 raise ValueError("Could not pin the ZAP container image digest.")
             (folder / "ready.json").write_text(json.dumps({"image": digest}))

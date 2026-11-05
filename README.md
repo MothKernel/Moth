@@ -1,101 +1,113 @@
 # Moth
 
-Moth is a website security assessment tool that brings multiple scanners into a simple interface, with plain-language findings, technical details, and actionable recommendations.
+Moth is a native desktop website security assessment program with optional scanner integrations, plain-language findings, technical details, and actionable recommendations.
 
-**Version 0.1 — local development preview.** English is the default interface language, with Romanian and Russian available in the language selector. The interface runs in your browser; the assessment engine runs on your computer.
+**Version 0.2 — native Qt/PySide6 desktop application.** Moth opens its own window. There is no HTTP server, browser interface, Electron shell, or embedded web view. English is the default language; Romanian and Russian are available from the language selector.
 
-![Moth desktop interface](docs/moth-interface.png)
+![Moth desktop application](docs/moth-interface.png)
 
-## Start
+## Launch from your desktop
 
-Requires Python 3.11+ with `venv` and `pip`. Python 3.12 is a useful choice for the widest third-party scanner compatibility.
+### Linux
 
-Linux/macOS:
+On the development computer, double-click **Moth** on the desktop or find Moth in the applications menu. The shortcut points to the native executable in `dist/Moth/Moth` when a local build exists.
+
+To run from source:
 
 ```bash
 bash start.sh
 ```
 
-Windows: install Python with the Python launcher, then double-click `start.bat`.
+The launcher creates a virtual environment and installs Qt if necessary. On Linux it can reuse a distribution-installed PySide6. No terminal is needed when launching the desktop shortcut.
 
-Or start manually:
+Create or refresh the shortcut from the program's **Desktop shortcut** button, or run:
 
 ```bash
-python -m venv .venv
-# Activate the virtual environment for your operating system.
-python -m pip install -r requirements.txt
-python main.py
+python install_desktop.py
 ```
 
-Moth opens `http://127.0.0.1:8765`. Use `--no-browser` or `--port 8766` when needed. This preview is source-based; it is not yet a signed Windows executable installer.
+### Windows
 
-## What works
+The **Desktop build** GitHub Actions workflow produces a **Moth-Windows** artifact. Download and extract the complete ZIP, then double-click **Moth.exe**. Keep the `_internal` directory beside the executable. The packaged application includes Python and Qt for its own operation.
 
-- Built-in, bounded HTTP(S) assessment: certificate validation, HTTP use, security headers, cookie attributes and redirects.
-- Background scans, progress, cancellation, explicit failure/partial states and restart recovery.
-- SQLite history and standalone HTML / JSON reports. Open an HTML report and print to PDF if needed.
-- Reviewed built-in finding explanations in English, Romanian and Russian.
-- Optional tool selection and one-at-a-time installation from the Tools screen.
-- External tool observations kept distinct from confirmed vulnerabilities. Their original descriptions remain in English; the interface identifies this explicitly.
+Use **Desktop shortcut** inside Moth to create a Windows desktop shortcut.
 
-## Optional integrations
+To run the source checkout instead, install Python 3.11+ with its launcher, then double-click `start.bat`. The source launcher installs dependencies and opens the native window with `pythonw.exe`.
+
+## Features
+
+- Built-in HTTP(S) checks: certificate validation/expiry, HTTP use, security headers, cookie attributes and redirects.
+- Background assessments with progress, stop controls and explicit failure/partial states.
+- Findings list with plain-language explanations and a separate technical-details view.
+- Ten tool integrations, optional tool selection and installation from the Tools page.
+- Local SQLite history, reopened directly inside the program.
+- Native save dialogs for standalone HTML and JSON reports. HTML is an export format, not the program interface.
+- English, Romanian and Russian interface and built-in finding explanations; language selection persists.
+- Desktop shortcuts and a single-instance lock.
+
+## Optional tools
 
 | Tool | Installation | Current adapter scope |
 | --- | --- | --- |
-| httpx (ProjectDiscovery) | Official GitHub release, SHA-256 checked | HTTP service identification, no redirect following or protocol fallback |
-| SSLyze | Dedicated Python virtual environment, PyPI | TLS configuration summary and legacy protocol detection |
-| Katana | Official GitHub release, SHA-256 checked | Exact-origin crawl, depth 2, 30 seconds, 2 requests/second |
-| ZAP | Docker image, pinned by digest after pull | One requested page and passive rules; no active scan or spider |
-| Nuclei | Official GitHub release, SHA-256 checked | Only the reviewed template bundled in `moth/templates`; no arbitrary template input |
-| Retire.js | npm, local prefix; verified Node LTS downloaded if absent | Initial page and up to five same-origin scripts; no third-party script fetching |
-| dnsx | Official GitHub release, SHA-256 checked | Target A, AAAA and CNAME queries |
-| WAFW00F | Dedicated Python virtual environment, PyPI | WAF fingerprinting, redirects disabled |
-| Subfinder | Official GitHub release, SHA-256 checked | Passive discovery only; discovered hosts are never automatically scanned |
-| Nmap | Official installation detected on PATH / standard Windows paths | TCP connect to the selected web port on one resolved address |
+| httpx (ProjectDiscovery) | Official release, SHA-256 checked | HTTP service identification; no redirects or protocol fallback |
+| SSLyze | Isolated Python environment | TLS configuration summary and legacy protocol detection |
+| Katana | Official release, SHA-256 checked | Exact-origin crawl, depth 2, 30 seconds, 2 requests/second |
+| ZAP | Docker image, pinned by digest | One-page passive analysis; no active scan or spider |
+| Nuclei | Official release, SHA-256 checked | Reviewed template bundled with Moth, not the full community library |
+| Retire.js | Local npm installation; verified Node LTS if needed | Page and up to five same-origin scripts |
+| dnsx | Official release, SHA-256 checked | A, AAAA and CNAME records |
+| WAFW00F | Isolated Python environment | WAF fingerprinting, redirects disabled |
+| Subfinder | Official release, SHA-256 checked | Passive discovery; discovered hosts are not scanned |
+| Nmap | Official installation detected | TCP connect to the selected web port on one resolved address |
 
-ZAP requires Docker Desktop/Engine installed and running. Nmap uses the official installer because Nmap/Npcap redistribution has licensing restrictions. These prerequisites are shown in the interface; Moth does not silently install system drivers, Docker or WSL. Other modules install within Moth's user data directory, without administrator privileges. Internet access is required for installation and some external tool databases/services.
+ZAP requires Docker Desktop/Engine installed and running. Nmap uses an official, separate installation due to redistribution restrictions. SSLyze and WAFW00F need a separate Python 3.11+ installation when using the packaged executable; the UI identifies that prerequisite. Installing system drivers, Docker or Python is not performed silently. Tools install under Moth's user data directory, without administrator privileges.
 
-GitHub API rate limits, network restrictions, missing platform builds or third-party runtime compatibility can cause an installation to fail. The interface shows the failure and permits a retry. Checksums protect download integrity; they are not independent proof of upstream authenticity.
+Installations need internet access. Some tool databases and passive discovery sources also use external services. Missing platform builds, upstream API limits or runtime incompatibilities are shown as installation errors with a retry option. Not all external installers have been exercised on Windows yet.
 
-## Coverage and operation
+## Assessment scope and local data
 
-Assess only targets you own or are authorized to test. Start with a lab. Crawling and external scanners make additional requests, and even GET requests can have effects on poorly designed sites.
+Assess targets you own or have permission to test. Private/local targets require the laboratory option. Crawlers and scanners generate additional requests; even GET requests can affect poorly designed sites.
 
-The built-in checker requests only the initial URL, does not follow redirects, validates TLS, ignores proxy environment variables, and pins its connection to the resolved address. Query strings, credentials and fragments are excluded. Local/private addresses require an explicit laboratory option.
+The built-in checker retrieves one initial URL, does not follow redirects, validates TLS, pins the connection to a resolved address and excludes URL query strings, fragments and embedded credentials. External scanners use their own network stacks; CLI scope controls are not an operating-system network sandbox.
 
-External tools have their own network stacks and DNS behavior; Moth's CLI scope controls are not an OS-level network sandbox. The current app is **local and single-user**, not a hosted scanner for untrusted users. Dockerized ZAP cannot reach the host's loopback address as if it were the host itself. Use an accessible lab hostname/address for that module.
+Missing hardening, open ports and identified technologies are not automatically vulnerabilities. No findings is not a security guarantee. Tool errors and limited coverage remain visible. External scanner descriptions are currently shown in their original English and labeled accordingly.
 
-Missing headers, open ports and detected technologies are not automatically vulnerabilities. No findings is not a security guarantee. Built-in checks do not test authenticated workflows, business logic, SQL injection, XSS exploitation or every OWASP category. Tool errors and limited coverage are part of the report.
+Data is stored under `%LOCALAPPDATA%/Moth` on Windows and `~/.local/share/Moth` on Linux. Set `MOTH_DATA_DIR` to override it. Existing assessment history and tool installations from version 0.1 are reused. Raw tool artifacts are removed after each run; normalized findings omit raw response and cookie values. Exported reports can contain target addresses and technical evidence.
 
-Moth removes raw tool artifacts after a run and excludes raw response/cookie values from normalized findings. Target paths, public DNS records, tool evidence and scan history remain on disk. External scanners may maintain their own upstream caches/configuration.
-
-Data defaults to `%LOCALAPPDATA%\Moth` on Windows and `~/.local/share/Moth` on Linux. Override with `MOTH_DATA_DIR` before startup. The local API uses a per-launch session token, same-origin checks and loopback host restrictions; do not expose it through a public proxy.
-
-## Development
+## Development and packaging
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Tests exercise a local HTTP fixture, authorization and local API controls, failed scan handling, cookie redaction, redirect scope, cancellation, installer checksums/extraction, all ten result parsers, database handle cleanup and report escaping. They do not install or run all third-party scanners. The core test suite has passed GitHub Actions on Linux and Windows with Python 3.12 and 3.14. Full scanner installation on clean Windows systems remains to be validated.
+Native UI tests use Qt's offscreen platform and exercise actual Qt widgets: language changes, navigation, a local lab assessment, technical details, history and file exports. Engine tests cover scope checks, cancellation, redaction, installer integrity, result parsers and SQLite lifecycle. They do not install every scanner.
+
+Build a native executable on the target OS:
+
+```bash
+python -m pip install "pyinstaller>=6.15,<7"
+python -m PyInstaller --noconfirm Moth.spec
+```
+
+The output is `dist/Moth/Moth.exe` on Windows and `dist/Moth/Moth` on Linux, plus required libraries in `_internal`. `--smoke-test` opens the native window and closes it automatically for packaging checks. Builds are OS-specific; a Linux build is not a Windows executable.
 
 Project layout:
 
 ```text
-main.py                 Local launcher
-moth/app.py             FastAPI routes and local session controls
+main.py                 Native desktop launcher
+moth/desktop.py         Qt Widgets interface
+moth/shortcuts.py       Desktop shortcut integration
 moth/engine.py          Background scan lifecycle
 moth/checks.py          Built-in checks
 moth/targets.py         URL validation and bounded HTTP requests
 moth/tools.py           Registry, detection and installers
-moth/adapters.py        External process execution and normalization
-moth/findings.py        Reviewed, translated explanations
+moth/adapters.py        External tool execution and normalized findings
+moth/processes.py       External process environment handling
+moth/findings.py        Reviewed translated explanations
 moth/storage.py         SQLite persistence
-moth/reports.py         Standalone report generation
-moth/static/            Interface and translations
+moth/reports.py         Standalone exported reports
+moth/resources/         Translations and application icons
 moth/templates/         Reviewed Nuclei templates
-tests/                  Automated tests
+Moth.spec               Native executable build specification
 ```
-
-Next release work: test every integration against pinned upstream versions on clean Windows/Linux machines, expand reviewed checks and localized external finding mappings, then build a Windows installer and update mechanism. Review each third-party license before bundling or redistribution.

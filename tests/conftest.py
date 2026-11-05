@@ -3,6 +3,7 @@ import tempfile
 
 _data = tempfile.TemporaryDirectory(prefix="moth-tests-")
 os.environ["MOTH_DATA_DIR"] = _data.name
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
