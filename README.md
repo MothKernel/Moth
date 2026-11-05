@@ -83,6 +83,8 @@ python -m pytest -q
 
 Native UI tests use Qt's offscreen platform and exercise actual Qt widgets: language changes, navigation, a local lab assessment, technical details, history and file exports. Engine tests cover scope checks, cancellation, redaction, installer integrity, result parsers and SQLite lifecycle. They do not install every scanner.
 
+Minimal Ubuntu/headless environments also need `libegl1` and `libopengl0` for Qt. The test workflow installs these system libraries before running the native widget tests.
+
 Build a native executable on the target OS:
 
 ```bash

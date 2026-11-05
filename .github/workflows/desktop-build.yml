@@ -1,5 +1,13 @@
 name: Desktop build
-on: [push, workflow_dispatch]
+on:
+  push:
+    paths:
+      - 'main.py'
+      - 'moth/**'
+      - 'Moth.spec'
+      - 'requirements.txt'
+      - '.github/workflows/desktop-build.yml'
+  workflow_dispatch:
 jobs:
   windows:
     runs-on: windows-latest
