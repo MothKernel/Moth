@@ -55,3 +55,11 @@ def test_restart_recovery():
     storage.save(dict(id="interrupted", created=storage.now(), status="running"))
     storage.recover()
     assert storage.get("interrupted")["status"] == "interrupted"
+
+
+def test_database_handles_are_closed():
+    import sqlite3
+    with storage.connect() as db:
+        db.execute("SELECT 1")
+    with pytest.raises(sqlite3.ProgrammingError):
+        db.execute("SELECT 1")

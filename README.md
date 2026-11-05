@@ -78,7 +78,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Tests exercise a local HTTP fixture, authorization and local API controls, failed scan handling, cookie redaction, redirect scope, cancellation, installer checksums/extraction, all ten result parsers and report escaping. They do not install or run all third-party scanners. The CI configuration covers Linux and Windows; a local Linux test run does not substitute for Windows validation.
+Tests exercise a local HTTP fixture, authorization and local API controls, failed scan handling, cookie redaction, redirect scope, cancellation, installer checksums/extraction, all ten result parsers, database handle cleanup and report escaping. They do not install or run all third-party scanners. The core test suite has passed GitHub Actions on Linux and Windows with Python 3.12 and 3.14. Full scanner installation on clean Windows systems remains to be validated.
 
 Project layout:
 

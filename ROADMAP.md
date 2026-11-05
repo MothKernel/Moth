@@ -10,12 +10,12 @@
 | Understandable explanations | Built-in findings translated into English, Romanian and Russian; original external descriptions labeled as English |
 | Interface | Browser-tested: language persistence, ten tool cards, real scan, technical details, history, HTML download and mobile layout; no JavaScript errors |
 | Persistence and reports | SQLite, downloadable HTML/JSON; PDF through browser printing |
-| Validation | 37 Linux unit/integration tests passed; real httpx installation and httpx/Nmap lab scans passed; browser checks documented below |
-| Windows distribution | Source launcher and Windows CI configuration prepared; clean Windows validation and executable installer still pending |
+| Validation | Core suite passed on Linux and Windows with Python 3.12/3.14; real httpx installation and httpx/Nmap lab scans passed on Linux; browser checks passed |
+| Windows distribution | Source launcher prepared and core CI passed; full scanner installation on clean Windows and executable installer still pending |
 
 ## Before a production release
 
-- Run the Windows CI matrix in the actual repository and validate installations on a clean Windows machine.
+- Validate all scanner installations on a clean Windows machine; the core Windows/Linux CI matrix is already passing.
 - Exercise the eight remaining external tools end to end against controlled labs, including Docker permissions and cancellation.
 - Pin compatible scanner versions and test upgrades; current installers resolve upstream releases at installation time.
 - Expand reviewed Nuclei templates and localized mappings for external alerts.

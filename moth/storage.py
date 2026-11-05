@@ -1,6 +1,7 @@
 """Short-lived SQLite connections; workers never share a connection."""
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from .config import DATA
 
@@ -9,11 +10,16 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+@contextmanager
 def connect():
     db = sqlite3.connect(DATA / "moth.sqlite3", timeout=15)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("CREATE TABLE IF NOT EXISTS scans (id TEXT PRIMARY KEY, created TEXT, body TEXT)")
-    return db
+    try:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("CREATE TABLE IF NOT EXISTS scans (id TEXT PRIMARY KEY, created TEXT, body TEXT)")
+        with db:
+            yield db
+    finally:
+        db.close()
 
 
 def save(scan):
