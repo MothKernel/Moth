@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.request
 import zipfile
+from functools import lru_cache
 from pathlib import Path
 from .config import TOOLS
 from .processes import external_environment, no_console_flags
@@ -21,7 +22,7 @@ REGISTRY = [
     dict(id="httpx", name="httpx", purpose="HTTP services, status and technologies", group="discovery", url="https://github.com/projectdiscovery/httpx"),
     dict(id="sslyze", name="SSLyze", purpose="TLS protocols and certificate configuration", group="assessment", url="https://github.com/nabla-c0d3/sslyze"),
     dict(id="katana", name="Katana", purpose="Same-host page and endpoint discovery", group="discovery", url="https://github.com/projectdiscovery/katana"),
-    dict(id="zap", name="ZAP", purpose="One-page passive web analysis via Docker", group="assessment", url="https://www.zaproxy.org/download/"),
+    dict(id="zap", name="ZAP", purpose="One-page passive web analysis", group="assessment", url="https://www.zaproxy.org/download/"),
     dict(id="nuclei", name="Nuclei", purpose="Reviewed local configuration templates", group="assessment", url="https://github.com/projectdiscovery/nuclei"),
     dict(id="retire", name="Retire.js", purpose="Known vulnerable JavaScript libraries", group="assessment", url="https://github.com/RetireJS/retire.js"),
     dict(id="dnsx", name="dnsx", purpose="DNS records and hostname resolution", group="discovery", url="https://github.com/projectdiscovery/dnsx"),
@@ -62,30 +63,125 @@ def python_bin(folder):
     return folder / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def executable_candidates(*names):
+    """PATH plus common user locations omitted by desktop-session PATHs."""
+    folders = [Path.home() / ".local/bin", Path.home() / "go/bin", Path.home() / ".npm-global/bin",
+               Path.home() / ".local/share/pnpm", Path("/usr/local/bin"), Path("/usr/bin")]
+    for entry in os.environ.get("GOPATH", "").split(os.pathsep):
+        if entry:
+            folders.append(Path(entry) / "bin")
+    seen = set()
+    for name in names:
+        found = shutil.which(name)
+        candidates = ([Path(found)] if found else []) + [folder / (name + EXE) for folder in folders]
+        for candidate in candidates:
+            key = str(candidate)
+            if key not in seen and candidate.is_file() and os.access(candidate, os.X_OK):
+                seen.add(key)
+                yield candidate
+
+
+@lru_cache(maxsize=64)
+def _is_pd_httpx(path, mtime, size):
+    """Python HTTPX is a different application despite having the same CLI name."""
+    try:
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.Popen([path, "-h"], stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                                      env=external_environment(), creationflags=no_console_flags())
+            try:
+                result.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                result.kill()
+                result.wait()
+                return False
+            output.seek(0)
+            help_text = output.read(100_000).decode("utf-8", "replace").lower()
+        return "-status-code" in help_text and "-tech-detect" in help_text
+    except OSError:
+        return False
+
+
+def native_zap_command():
+    # Arch's /usr/bin/zaproxy wrapper may discard arguments. Prefer the real script.
+    if os.name != "nt":
+        roots = [Path("/usr/share/zaproxy"), Path("/usr/share/zap"), Path("/opt/zaproxy"),
+                 Path("/opt/ZAP"), Path("/Applications/ZAP.app/Contents/Java")]
+        for root in roots:
+            script = root / "zap.sh"
+            if script.is_file() and os.access(script, os.X_OK):
+                return [str(script)]
+        for script in executable_candidates("zap.sh", "zaproxy", "owasp-zap"):
+            # Prefer an argument-preserving script beside a wrapper where possible.
+            direct = script.resolve().parent / "zap.sh"
+            return [str(direct if direct.is_file() else script)]
+    else:
+        java = shutil.which("java")
+        if java:
+            for variable in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+                base = Path(os.environ.get(variable, "C:/Program Files"))
+                for root in (base / "ZAP/Zed Attack Proxy", base / "OWASP/Zed Attack Proxy", base / "ZAP"):
+                    if root.is_dir():
+                        jars = sorted(root.glob("zap-*.jar"), reverse=True)
+                        if jars:
+                            return [java, "-jar", str(jars[0])]
+    return None
+
+
+def is_docker_zap(cmd):
+    return bool(cmd and len(cmd) == 2 and cmd[1].startswith("ghcr.io/zaproxy/zaproxy"))
+
+
 def command(tool):
     folder = TOOLS / tool
     if tool in PD:
+        aliases = ("httpx-toolkit", "httpx-pd", "httpx") if tool == "httpx" else (tool,)
+        for candidate in executable_candidates(*aliases):
+            if tool != "httpx":
+                return [str(candidate)]
+            try:
+                stat = candidate.stat()
+            except OSError:
+                continue
+            if _is_pd_httpx(str(candidate), stat.st_mtime_ns, stat.st_size):
+                return [str(candidate)]
         path = folder / (tool + EXE)
-        # Do not mistake the Python httpx CLI for ProjectDiscovery's binary.
         return [str(path)] if path.is_file() else None
     if tool in ("sslyze", "wafw00f"):
+        system = next(executable_candidates(tool), None)
+        if system:
+            return [str(system)]
         path = python_bin(folder / "venv")
         entry = folder / "venv" / ("Scripts/wafw00f.exe" if os.name == "nt" else "bin/wafw00f")
         if (folder / "ready.json").exists() and path.exists():
             return [str(entry)] if tool == "wafw00f" and entry.exists() else [str(path), "-m", tool]
         return None
     if tool == "retire":
+        if os.name != "nt":
+            system = next(executable_candidates("retire", "retirejs"), None)
+            if system:
+                return [str(system)]
         node = node_command()
+        if node:
+            roots = [Path("/usr/lib/node_modules"), Path("/usr/local/lib/node_modules"),
+                     Path.home() / ".npm-global/lib/node_modules", Path(os.environ.get("APPDATA", str(Path.home()))) / "npm/node_modules"]
+            for root in roots:
+                script = root / "retire/bin/retire"
+                if script.is_file():
+                    return node + [str(script)]
         script = folder / "node_modules/retire/bin/retire"
         return node + [str(script)] if node and script.exists() and (folder / "ready.json").exists() else None
     if tool == "zap":
+        native = native_zap_command()
+        if native:
+            return native
         marker = folder / "ready.json"
         docker = shutil.which("docker")
         if docker and marker.exists():
             return [docker, json.loads(marker.read_text(encoding="utf-8"))["image"]]
         return None
     if tool == "nmap":
-        candidates = [shutil.which("nmap")]
+        system = next(executable_candidates("nmap"), None)
+        candidates = [str(system) if system else None]
         if os.name == "nt":
             candidates += [str(Path(os.environ.get(root, "C:/Program Files")) / "Nmap/nmap.exe")
                            for root in ("ProgramFiles", "ProgramFiles(x86)")]
@@ -98,18 +194,24 @@ def catalog():
     rows = []
     for tool in REGISTRY:
         identifier = tool["id"]
-        ready = bool(command(identifier))
+        cmd = command(identifier)
+        ready = bool(cmd)
+        source = "docker" if identifier == "zap" and is_docker_zap(cmd) else (
+            "moth" if cmd and Path(cmd[0]).resolve().is_relative_to(TOOLS.resolve()) else "system" if cmd else "")
         marker = TOOLS / identifier / "ready.json"
         version = ""
-        if marker.exists():
+        if marker.exists() and source in ("moth", "docker"):
             try:
                 details = json.loads(marker.read_text(encoding="utf-8"))
                 version = details.get("version", details.get("image", ""))
             except (OSError, ValueError):
                 pass
-        row = dict(tool, status="ready" if ready else "missing", version=version, message="", automatic=identifier != "nmap")
+        row = dict(tool, status="ready" if ready else "missing", version=version, message="", automatic=identifier != "nmap",
+                   source=source, location=" ".join(cmd) if cmd else "")
         row.update(state.get(identifier, {}))
-        if identifier == "zap" and not shutil.which("docker"):
+        if ready and row["status"] != "installing":
+            row.update(status="ready", message="")
+        if identifier == "zap" and not ready and not shutil.which("docker"):
             row.update(status="prerequisite", message="Install and start Docker Desktop/Engine first.")
         if identifier == "nmap" and not ready:
             row.update(status="manual", message="Use the official installer; redistribution requires a license review.")
@@ -314,6 +416,8 @@ def start_install(tool):
         raise ValueError("Unknown tool.")
     if tool == "nmap":
         raise ValueError("Install Nmap from its official website, then refresh detection.")
+    if command(tool):
+        return
     with LOCK:
         if STATE.get(tool, {}).get("status") == "installing":
             return

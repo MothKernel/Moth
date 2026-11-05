@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlsplit
 from .config import ROOT
 from .findings import finding
 from .targets import fetch, normalize, resolve
-from .tools import command
+from .tools import command, is_docker_zap
 from .processes import external_environment, no_console_flags
 
 
@@ -236,17 +236,22 @@ def run_tool(tool, url, directory, cancel, allow_private=False):
         # Scan only the resolved target address and explicitly selected web port; no NSE or OS scans.
         args = cmd + (["-6"] if ":" in addresses[0] else []) + ["-sT", "-Pn", "-n", "--max-retries", "1", "--host-timeout", "30s", "-p", str(p.port or (443 if p.scheme == "https" else 80)), "-oX", str(directory / "result.xml"), addresses[0]]
     elif tool == "zap":
+        docker_mode = is_docker_zap(cmd)
+        report_dir = "/zap/wrk" if docker_mode else str(directory)
         plan = {"env": {"contexts": [{"name": "moth", "urls": [url]}], "parameters": {"failOnError": True}},
                 "jobs": [{"type": "requestor", "requests": [{"url": url, "method": "GET", "httpVersion": "HTTP/1.1"}]},
                          {"type": "passiveScan-wait", "parameters": {"maxDuration": 1}},
-                         {"type": "report", "parameters": {"template": "traditional-json", "reportDir": "/zap/wrk", "reportFile": "result.json"}}]}
+                         {"type": "report", "parameters": {"template": "traditional-json", "reportDir": report_dir, "reportFile": "result.json"}}]}
         (directory / "plan.yaml").write_text(json.dumps(plan))
-        docker, image = cmd
-        container = "moth-" + directory.parent.name
-        args = [docker, "run", "--rm", "--name", container]
-        if os.name != "nt" and hasattr(os, "getuid"):
-            args += ["--user", f"{os.getuid()}:{os.getgid()}"]
-        args += ["-v", f"{directory}:/zap/wrk:rw", image, "zap.sh", "-cmd", "-autorun", "/zap/wrk/plan.yaml"]
+        if docker_mode:
+            docker, image = cmd
+            container = "moth-" + directory.parent.name
+            args = [docker, "run", "--rm", "--name", container]
+            if os.name != "nt" and hasattr(os, "getuid"):
+                args += ["--user", f"{os.getuid()}:{os.getgid()}"]
+            args += ["-v", f"{directory}:/zap/wrk:rw", image, "zap.sh", "-cmd", "-autorun", "/zap/wrk/plan.yaml"]
+        else:
+            args = cmd + ["-cmd", "-dir", str(directory / "home"), "-autorun", str(directory / "plan.yaml")]
         accepted = (0, 2)  # automation warnings can yield exit 2
     else:
         raise ValueError("Unsupported tool.")
@@ -254,7 +259,7 @@ def run_tool(tool, url, directory, cancel, allow_private=False):
         output = execute(args, directory, cancel, timeout=240 if tool == "zap" else 180, stdin=stdin, accepted=accepted)
         return parse(tool, url, output, directory)
     finally:
-        if tool == "zap":
+        if tool == "zap" and is_docker_zap(cmd):
             # docker client termination alone does not stop the container.
             subprocess.run([cmd[0], "rm", "-f", "moth-" + directory.parent.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, env=external_environment(), creationflags=no_console_flags())
         # Raw output may contain cookies, request material or URLs with tokens.

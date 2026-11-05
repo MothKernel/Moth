@@ -486,6 +486,12 @@ class MainWindow(QMainWindow):
             card.setMinimumWidth(280)
             content = QVBoxLayout(card)
             content.addWidget(text_label(self.tr_text("tool_" + row["id"])))
+            if row.get("source"):
+                content.addWidget(text_label(self.tr_text("source_" + row["source"]), "muted"))
+            if row.get("location"):
+                location = text_label(row["location"], "muted")
+                location.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                content.addWidget(location)
             message = row["message"]
             if row["status"] == "prerequisite" and row["id"] == "zap":
                 message = self.tr_text("zap_requirement")
@@ -523,6 +529,7 @@ class MainWindow(QMainWindow):
             self.show_notice(str(exc))
 
     def refresh_prerequisites(self):
+        tools._is_pd_httpx.cache_clear()
         if hasattr(tools.catalog, "python_available"):
             del tools.catalog.python_available
         self.refresh_tools(force=True)

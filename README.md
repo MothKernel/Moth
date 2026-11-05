@@ -39,7 +39,7 @@ To run the source checkout instead, install Python 3.11+ with its launcher, then
 - Built-in HTTP(S) checks: certificate validation/expiry, HTTP use, security headers, cookie attributes and redirects.
 - Background assessments with progress, stop controls and explicit failure/partial states.
 - Findings list with plain-language explanations and a separate technical-details view.
-- Ten tool integrations, optional tool selection and installation from the Tools page.
+- Ten tool integrations, automatic detection of existing installations, optional selection and installation from the Tools page.
 - Local SQLite history, reopened directly inside the program.
 - Native save dialogs for standalone HTML and JSON reports. HTML is an export format, not the program interface.
 - English, Romanian and Russian interface and built-in finding explanations; language selection persists.
@@ -47,12 +47,14 @@ To run the source checkout instead, install Python 3.11+ with its launcher, then
 
 ## Optional tools
 
+Moth checks the system PATH and common desktop/user installation locations, including `/usr/bin`, `/usr/local/bin`, `~/.local/bin`, `~/go/bin`, configured GOPATH directories and common npm locations. Existing installations take priority over Moth-managed copies. The Tools page shows the source and executable path; detection refreshes automatically and can also be refreshed manually. Python HTTPX is distinguished from ProjectDiscovery httpx by its CLI capabilities.
+
 | Tool | Installation | Current adapter scope |
 | --- | --- | --- |
 | httpx (ProjectDiscovery) | Official release, SHA-256 checked | HTTP service identification; no redirects or protocol fallback |
 | SSLyze | Isolated Python environment | TLS configuration summary and legacy protocol detection |
 | Katana | Official release, SHA-256 checked | Exact-origin crawl, depth 2, 30 seconds, 2 requests/second |
-| ZAP | Docker image, pinned by digest | One-page passive analysis; no active scan or spider |
+| ZAP | Existing native installation, or Docker image pinned by digest | One-page passive analysis; no active scan or spider |
 | Nuclei | Official release, SHA-256 checked | Reviewed template bundled with Moth, not the full community library |
 | Retire.js | Local npm installation; verified Node LTS if needed | Page and up to five same-origin scripts |
 | dnsx | Official release, SHA-256 checked | A, AAAA and CNAME records |
@@ -60,7 +62,7 @@ To run the source checkout instead, install Python 3.11+ with its launcher, then
 | Subfinder | Official release, SHA-256 checked | Passive discovery; discovered hosts are not scanned |
 | Nmap | Official installation detected | TCP connect to the selected web port on one resolved address |
 
-ZAP requires Docker Desktop/Engine installed and running. Nmap uses an official, separate installation due to redistribution restrictions. SSLyze and WAFW00F need a separate Python 3.11+ installation when using the packaged executable; the UI identifies that prerequisite. Installing system drivers, Docker or Python is not performed silently. Tools install under Moth's user data directory, without administrator privileges.
+An existing native ZAP installation is used directly without Docker. On Arch, Moth uses `/usr/share/zaproxy/zap.sh` because the distribution launcher can discard command-line arguments. Docker Desktop/Engine is required only for the optional Docker-based ZAP installation. Nmap uses an official, separate installation due to redistribution restrictions. SSLyze and WAFW00F need a separate Python 3.11+ installation when using the packaged executable; the UI identifies that prerequisite. Installing system drivers, Docker or Python is not performed silently. Tools install under Moth's user data directory, without administrator privileges.
 
 Installations need internet access. Some tool databases and passive discovery sources also use external services. Missing platform builds, upstream API limits or runtime incompatibilities are shown as installation errors with a retry option. Not all external installers have been exercised on Windows yet.
 

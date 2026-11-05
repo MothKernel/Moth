@@ -7,7 +7,7 @@ Moth is now a native Qt Widgets desktop program. Version 0.1's web server and br
 - Native desktop window, direct Python engine calls, no HTTP server or WebView.
 - English/Romanian/Russian interface with persistent language preference.
 - Assessments, progress, stop, plain-language findings and technical details.
-- Ten integration adapters and tool installation/detection within the window.
+- Ten integration adapters, automatic system/user-path discovery and tool installation within the window. Existing native ZAP is supported without Docker.
 - Native history view and HTML/JSON save dialogs.
 - Desktop shortcut creation and single-instance protection.
 - Linux executable build and Windows executable build workflow.
@@ -21,4 +21,4 @@ Moth is now a native Qt Widgets desktop program. Version 0.1's web server and br
 - Add authenticated assessment with careful secret handling.
 - Add a signed installer/update channel after executable and scanner validation.
 
-Windows packaged builds do not require a separate Python installation for Moth itself. The two optional Python-based scanners still require an external Python runtime, reported explicitly by the tool manager. ZAP requires Docker; Nmap uses its official installation.
+Windows packaged builds do not require a separate Python installation for Moth itself. The two optional Python-based scanners still require an external Python runtime, reported explicitly by the tool manager. ZAP uses a native installation when available; Docker is needed only for its optional container. Nmap uses an existing official installation.
