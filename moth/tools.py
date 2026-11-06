@@ -134,6 +134,27 @@ def is_docker_zap(cmd):
     return bool(cmd and len(cmd) == 2 and cmd[1].startswith("ghcr.io/zaproxy/zaproxy"))
 
 
+def retire_entry(folder):
+    """Resolve npm's declared executable, including Retire.js 6's lib/cli.js."""
+    folder = Path(folder)
+    try:
+        package = json.loads((folder / "package.json").read_text(encoding="utf-8"))
+        if package.get("name", "retire") != "retire":
+            return None
+        binaries = package.get("bin")
+        entry = binaries.get("retire") if isinstance(binaries, dict) else binaries
+        if not isinstance(entry, str) or not entry:
+            return None
+        candidate = (folder / entry).resolve()
+        return candidate if candidate.is_relative_to(folder.resolve()) and candidate.is_file() else None
+    except FileNotFoundError:
+        # Legacy installations without readable npm metadata.
+        legacy = folder / "bin/retire"
+        return legacy if legacy.is_file() else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def command(tool):
     folder = TOOLS / tool
     if tool in PD:
@@ -168,11 +189,11 @@ def command(tool):
             roots = [Path("/usr/lib/node_modules"), Path("/usr/local/lib/node_modules"),
                      Path.home() / ".npm-global/lib/node_modules", Path(os.environ.get("APPDATA", str(Path.home()))) / "npm/node_modules"]
             for root in roots:
-                script = root / "retire/bin/retire"
-                if script.is_file():
+                script = retire_entry(root / "retire")
+                if script:
                     return node + [str(script)]
-        script = folder / "node_modules/retire/bin/retire"
-        return node + [str(script)] if node and script.exists() and (folder / "ready.json").exists() else None
+        script = retire_entry(folder / "node_modules/retire")
+        return node + [str(script)] if node and script and (folder / "ready.json").exists() else None
     if tool == "zap":
         native = native_zap_command()
         if native:
@@ -225,6 +246,8 @@ def catalog():
                    source=source, location=" ".join(cmd) if cmd else "")
         row.update(state.get(identifier, {}))
         row["queue_position"] = positions.get(identifier)
+        if not ready and row["status"] == "ready":
+            row.update(status="error", message="Installation was recorded, but the executable or required runtime could not be found. Retry installation.")
         if ready and row["status"] not in ("installing", "queued"):
             row.update(status="ready", message=row["message"] if row.get("update_failed") else "")
         if identifier == "zap" and not ready and not shutil.which("docker"):
@@ -412,6 +435,10 @@ def install(tool):
             if not npm_script:
                 raise ValueError("npm was not found beside Node.js. Install Node.js with npm and retry.")
             run_install(node + [str(npm_script), "install", "--prefix", str(folder), "--ignore-scripts", "--no-audit", "--no-fund", "retire"])
+            script = retire_entry(folder / "node_modules/retire")
+            if script is None:
+                raise ValueError("Retire.js installed without a detectable CLI entry. Retry installation.")
+            run_install(node + [str(script), "--version"], timeout=30)
             version = json.loads((folder / "node_modules/retire/package.json").read_text(encoding="utf-8"))["version"]
             (folder / "ready.json").write_text(json.dumps({"source": "npm", "package": "retire", "version": version}))
         elif tool == "zap":

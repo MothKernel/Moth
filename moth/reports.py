@@ -1,4 +1,5 @@
 import html
+import json
 from .presentation import describe, error_help
 
 
@@ -25,7 +26,8 @@ article{{border:1px solid #d8ded8;padding:24px;margin:20px 0;break-inside:avoid}
 pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f5f0;padding:16px}}small{{color:#586b60}}
 @media print{{body{{margin:0}}}}
 </style><body><p>MOTH / {esc(scan['created'])}</p><h1>{labels[0]}</h1>
-<p>{esc(scan['target'])}</p><p>{labels[1]}: {esc(scan['status'])}</p>
-<h2>{labels[2]}</h2><pre>{esc(scan.get('coverage', {}))}</pre><pre>{esc(scan.get('tool_versions', {}))}</pre>
+<p>{esc(scan['target'])}</p><p>{labels[1]}: {esc(scan['status'])} · {esc(scan.get("profile", "low").title())}</p>
+<h2>{labels[2]}</h2><pre>{esc(scan.get('coverage', {}))}</pre><pre>{esc(scan.get('tool_versions', {}))}</pre><pre>{esc(scan.get("tool_scope", {}))}</pre>
+<h2>ZAP Spider</h2><pre>{esc(json.dumps(scan.get('spider', {}), ensure_ascii=False, indent=2))}</pre>
 {''.join(cards) or f'<p>{labels[6]}</p>'}<h2>{labels[5]}</h2>{errors or '—'}
 </body></html>"""

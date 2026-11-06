@@ -141,3 +141,27 @@ def error_help(message, language='en'):
     else:
         key = 'generic'
     return ERRORS[key][LANGS.get(language, 0)]
+
+
+def finding_sort_keys(scan, mode, language='en'):
+    """Stable display order; old sequential assessments use recorded step order."""
+    severity = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+    steps = scan.get('steps', [])
+    ranks = {step['tool']: step.get('completion_order', index) for index, step in enumerate(steps)}
+    keys = {}
+    for index, finding in enumerate(scan['findings']):
+        level = severity.get(finding['severity'])
+        if mode == 'severity_desc':
+            value = level if level is not None else 5
+        elif mode == 'severity_asc':
+            value = 4-level if level is not None else 5
+        elif mode == 'completion_newest':
+            value = -ranks.get(finding['tool'], -1)
+        elif mode == 'tool_az':
+            value = finding['tool'].casefold()
+        elif mode == 'title_az':
+            value = describe(finding, language)[0].casefold()
+        else:
+            value = ranks.get(finding['tool'], len(steps))
+        keys[finding['id']] = (value, index)
+    return keys

@@ -1,0 +1,182 @@
+[
+  {
+    "id": "security_unique",
+    "category": "security",
+    "source": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+    "text": {
+      "en": "Use a different password for each account. Reusing one password can let a breach of one service affect other accounts.",
+      "ro": "Folosește o parolă diferită pentru fiecare cont. Reutilizarea unei parole poate extinde o breșă de la un serviciu la alte conturi.",
+      "ru": "Используйте разные пароли для разных аккаунтов. Повторное использование пароля может распространить последствия одной утечки на другие аккаунты."
+    }
+  },
+  {
+    "id": "security_manager",
+    "category": "security",
+    "source": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+    "text": {
+      "en": "A password manager can generate and store long, unique passwords so you do not have to memorize them all.",
+      "ro": "Un manager de parole poate genera și păstra parole lungi și unice, fără să trebuiască să le memorezi pe toate.",
+      "ru": "Менеджер паролей помогает создавать и хранить длинные уникальные пароли, чтобы не запоминать их все."
+    }
+  },
+  {
+    "id": "security_mfa",
+    "category": "security",
+    "source": "https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html",
+    "text": {
+      "en": "Multifactor authentication adds a second kind of proof of identity. A stolen password alone may then be insufficient to sign in.",
+      "ro": "Autentificarea multifactor adaugă încă un tip de dovadă a identității. O parolă furată poate să nu mai fie suficientă pentru acces.",
+      "ru": "Многофакторная аутентификация добавляет другой тип подтверждения личности. Одного украденного пароля может оказаться недостаточно для входа."
+    }
+  },
+  {
+    "id": "security_https",
+    "category": "security",
+    "source": "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html",
+    "text": {
+      "en": "HTTPS protects the connection to a website. It does not, by itself, prove that the website is trustworthy or free of vulnerabilities.",
+      "ro": "HTTPS protejează conexiunea cu site-ul. Singur, nu dovedește că site-ul este de încredere sau lipsit de vulnerabilități.",
+      "ru": "HTTPS защищает соединение с сайтом. Сам по себе он не доказывает надёжность сайта или отсутствие уязвимостей."
+    }
+  },
+  {
+    "id": "security_updates",
+    "category": "security",
+    "source": "https://www.cisa.gov/secure-our-world/update-software",
+    "text": {
+      "en": "Software updates can include security fixes. Keep your browser, operating system and applications updated, not just your scanning tools.",
+      "ro": "Actualizările pot include remedieri de securitate. Menține actualizate browserul, sistemul de operare și aplicațiile, nu doar instrumentele de scanare.",
+      "ru": "Обновления ПО могут содержать исправления безопасности. Обновляйте браузер, ОС и приложения, а не только сканеры."
+    }
+  },
+  {
+    "id": "security_evidence",
+    "category": "security",
+    "source": "",
+    "text": {
+      "en": "A missing security header is a configuration finding, not proof of a successful attack. Review the evidence and application context.",
+      "ro": "Un antet de securitate lipsă este o constatare de configurare, nu dovada unui atac reușit. Verifică dovezile și contextul aplicației.",
+      "ru": "Отсутствующий защитный заголовок — замечание к настройкам, а не доказательство успешной атаки. Изучите данные и контекст приложения."
+    }
+  },
+  {
+    "id": "moth_filters",
+    "category": "moth",
+    "source": "",
+    "text": {
+      "en": "In Moth, severity, tool and result-type filters work together. Reset filters restores the complete findings list.",
+      "ro": "În Moth, filtrele de severitate, instrument și tip se combină. Resetarea filtrelor readuce lista completă a constatărilor.",
+      "ru": "В Moth фильтры уровня, инструмента и типа работают совместно. Сброс фильтров возвращает полный список замечаний."
+    }
+  },
+  {
+    "id": "moth_errors",
+    "category": "moth",
+    "source": "",
+    "text": {
+      "en": "An execution error is different from a website vulnerability. Open Errors for the cause and next steps, and Checks & coverage for tool status.",
+      "ro": "O eroare de execuție diferă de o vulnerabilitate a site-ului. În Erori vezi cauza și soluția, iar în Verificări și acoperire vezi starea instrumentelor.",
+      "ru": "Ошибка выполнения отличается от уязвимости сайта. Во вкладке Ошибки есть причины и действия, а в Проверках — статусы инструментов."
+    }
+  },
+  {
+    "id": "moth_profiles",
+    "category": "moth",
+    "source": "",
+    "text": {
+      "en": "Higher scan levels expand coverage and time budgets. They do not guarantee that a site is secure or that every check will take longer.",
+      "ro": "Nivelurile mai mari extind verificările și limitele de timp. Ele nu garantează securitatea site-ului sau că fiecare verificare va dura mai mult.",
+      "ru": "Высокие уровни расширяют проверки и лимиты времени. Они не гарантируют безопасность сайта или большую длительность каждого теста."
+    }
+  },
+  {
+    "id": "moth_history",
+    "category": "moth",
+    "source": "",
+    "text": {
+      "en": "You can reopen saved assessments in History and export HTML or JSON reports. Share reports thoughtfully: they can contain target addresses and technical findings.",
+      "ro": "Poți redeschide evaluările din Istoric și exporta rapoarte HTML sau JSON. Distribuie-le atent: pot conține adresele țintelor și constatări tehnice.",
+      "ru": "Сохранённые проверки доступны в Истории и экспортируются в HTML или JSON. Учитывайте, что отчёты содержат адреса целей и технические данные."
+    }
+  },
+  {
+    "id": "moth_queue",
+    "category": "moth",
+    "source": "",
+    "text": {
+      "en": "Moth queues tool installations and updates one at a time. An available update is proposed; installing it requires your click.",
+      "ro": "Moth pune instalările și actualizările în coadă, pe rând. O actualizare disponibilă este propusă; instalarea pornește la apăsarea butonului.",
+      "ru": "Moth выполняет установки и обновления по очереди. Доступное обновление предлагается пользователю и устанавливается после нажатия кнопки."
+    }
+  },
+  {
+    "id": "moth_skipped",
+    "category": "moth",
+    "source": "",
+    "text": {
+      "en": "Skipped does not mean passed. For example, SSLyze needs HTTPS, while passive subdomain discovery needs a domain name rather than an IP address.",
+      "ro": "Omisă nu înseamnă trecută cu succes. De exemplu, SSLyze cere HTTPS, iar descoperirea subdomeniilor cere un domeniu, nu o adresă IP.",
+      "ru": "Пропущено не означает успешно проверено. Например, SSLyze нужен HTTPS, а для поиска поддоменов нужно доменное имя, а не IP-адрес."
+    }
+  },
+  {
+    "id": "nature_scales",
+    "category": "nature",
+    "source": "https://womenshistory.si.edu/spotlight/buginfo/moths?page=1",
+    "text": {
+      "en": "Moth wings are usually covered with tiny scales. Butterflies share this characteristic: both belong to the insect order Lepidoptera.",
+      "ro": "Aripile moliilor sunt de obicei acoperite cu solzi minusculi. Și fluturii au această caracteristică: ambele aparțin ordinului Lepidoptera.",
+      "ru": "Крылья ночных бабочек обычно покрыты крошечными чешуйками. Дневные бабочки тоже имеют их: обе группы относятся к чешуекрылым."
+    }
+  },
+  {
+    "id": "nature_daytime",
+    "category": "nature",
+    "source": "https://www.mun.ca/botanicalgarden/learn/educational-resources/butterflies-moths-and-skippers/",
+    "text": {
+      "en": "Not every moth flies at night. Some species are active during the day, so the nickname “night butterfly” has exceptions.",
+      "ro": "Nu toate moliile zboară noaptea. Unele specii sunt active ziua, deci numele „fluture de noapte” are excepții.",
+      "ru": "Не все ночные бабочки летают ночью. Некоторые виды активны днём, поэтому у этого привычного названия есть исключения."
+    }
+  },
+  {
+    "id": "nature_moon",
+    "category": "nature",
+    "source": "https://www.amentsoc.org/insects/caresheets/moon-moths.html",
+    "text": {
+      "en": "Adult moon moths such as Actias selene do not feed. Feeding happens during their caterpillar stage instead.",
+      "ro": "Adulții unor molii lunare, precum Actias selene, nu se hrănesc. Hrănirea are loc în stadiul de omidă.",
+      "ru": "Взрослые лунные бабочки, например Actias selene, не питаются. Они питаются на стадии гусеницы."
+    }
+  },
+  {
+    "id": "nature_pollination",
+    "category": "nature",
+    "source": "https://www.nhm.ac.uk/discover/insect-pollination.html",
+    "text": {
+      "en": "Moths are among the insects that pollinate flowers. Some hawkmoths reach nectar deep inside flowers with a long proboscis.",
+      "ro": "Moliile se numără printre insectele care polenizează florile. Unele molii sfinx ajung la nectarul adânc din flori cu o trompă lungă.",
+      "ru": "Ночные бабочки участвуют в опылении цветов. Некоторые бражники достают нектар из глубоких цветков длинным хоботком."
+    }
+  },
+  {
+    "id": "nature_foodweb",
+    "category": "nature",
+    "source": "https://butterfly-conservation.org/moths/why-moths-matter/what-are-moths/moth-ecology",
+    "text": {
+      "en": "Moths and their caterpillars help feed other wildlife. Many birds time their breeding to coincide with abundant caterpillars.",
+      "ro": "Moliile și omizile lor sunt hrană pentru alte animale. Multe păsări își sincronizează reproducerea cu perioadele bogate în omizi.",
+      "ru": "Ночные бабочки и их гусеницы служат пищей другим животным. Многие птицы выводят птенцов в период обилия гусениц."
+    }
+  },
+  {
+    "id": "nature_camouflage",
+    "category": "nature",
+    "source": "https://butterfly-conservation.org/moths/why-moths-matter/what-are-moths/moth-ecology",
+    "text": {
+      "en": "Many moths use camouflage to avoid predators. Blending into their surroundings can make a resting moth surprisingly difficult to spot.",
+      "ro": "Multe molii folosesc camuflajul pentru a evita prădătorii. O molie aflată în repaus poate fi surprinzător de greu de observat.",
+      "ru": "Многие ночные бабочки используют маскировку против хищников. Отдыхающую бабочку бывает неожиданно трудно заметить на окружающем фоне."
+    }
+  }
+]

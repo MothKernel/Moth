@@ -2,20 +2,42 @@ import ssl
 import re
 import time
 from http.cookies import SimpleCookie, CookieError
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urljoin
+from html.parser import HTMLParser
 from .findings import finding
 from .targets import fetch
 
 
-def basic(url, allow_private=False):
+class PageLinks(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a" and len(self.links) < 1000:
+            self.links.extend(value for key, value in attrs if key == "href" and value)
+
+
+def basic(url, allow_private=False, discover=None):
     results = []
     if urlsplit(url).scheme == "http":
         results.append(finding("http", url, "URL scheme: http", "medium", "configuration"))
     try:
-        status, raw_headers, _, cert = fetch(url, allow_private)
+        status, raw_headers, body, cert = fetch(url, allow_private)
     except ssl.SSLCertVerificationError as exc:
         results.append(finding("certificate", url, str(exc), "medium", "configuration"))
         return results, {"coverage": "TLS handshake only; page not retrieved", "http_status": None}
+    if discover is not None:
+        from .targets import normalize
+        parser = PageLinks()
+        parser.feed(body.decode("utf-8", "replace"))
+        for link in parser.links:
+            try:
+                candidate = normalize(urljoin(url, link))
+                if urlsplit(candidate)[:2] == urlsplit(url)[:2] and not re.search(r"/(?:logout|signout|delete|remove|destroy)(?:/|$)", urlsplit(candidate).path, re.I):
+                    discover.append(candidate)
+            except ValueError:
+                continue
     headers = {k.lower(): v for k, v in raw_headers}
     if 300 <= status < 400:
         # Do not echo Location: it may contain authentication tokens.

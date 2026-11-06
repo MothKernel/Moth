@@ -178,3 +178,13 @@ def test_install_queue_skips_tools_detected_while_waiting(monkeypatch):
     assert not worker.is_alive()
     assert calls == ["httpx"]
     assert tools.STATE["katana"]["status"] == "ready"
+
+
+def test_unlimited_process_still_stops_on_cancel(tmp_path):
+    cancel=threading.Event()
+    timer=threading.Timer(.2,cancel.set); timer.start()
+    try:
+        with pytest.raises(adapters.Cancelled):
+            adapters.execute([sys.executable,'-c','import time; time.sleep(30)'],tmp_path,cancel,timeout=None)
+    finally:
+        timer.join()

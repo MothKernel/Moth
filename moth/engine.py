@@ -1,6 +1,10 @@
 import json
 import threading
 import uuid
+import time
+from collections import deque
+from .profiles import get_profile, incompatibility, scope
+from . import estimates
 from . import storage
 from .adapters import Cancelled, run_tool
 from .checks import basic
@@ -12,10 +16,16 @@ LOCK = threading.Lock()
 ACTIVE = {}
 
 
-def start(target, selected, authorized, allow_private=False):
+def start(target, selected, authorized, allow_private=False, profile="low", active_authorized=False):
     if not authorized:
         raise ValueError("Confirm that you have permission to assess this target.")
+    settings = get_profile(profile)
+    if profile in ("high", "ultra") and not active_authorized:
+        raise ValueError("Confirm permission for active checks and additional server ports before using High or Ultra.")
     url = normalize(target)
+    if profile == "ultra":
+        from .tools import REGISTRY
+        selected = [tool["id"] for tool in REGISTRY]
     # Network resolution belongs in the worker; the UI stays responsive.
     selected = list(dict.fromkeys(selected))
     if len(selected) > 10 or any(not metadata(tool) for tool in selected):
@@ -24,11 +34,14 @@ def start(target, selected, authorized, allow_private=False):
     if any(tool["id"] in selected and tool["status"] in ("queued", "installing") for tool in installed):
         raise ValueError("Wait for the selected tools to finish installing or updating before starting an assessment.")
     for tool in selected:
-        if not command(tool):
+        if not incompatibility(tool, url) and not command(tool):
             raise ValueError(f"{tool} is not installed. Open Tools first.")
     scan = dict(id=uuid.uuid4().hex, target=url, created=storage.now(), finished=None,
                 status="queued", stage="queued", progress=0, findings=[], tools=selected,
-                allow_private=allow_private, errors=[], coverage={}, steps=[])
+                allow_private=allow_private, errors=[], coverage={}, steps=[], profile=profile,
+                profile_settings=settings, active_authorized=active_authorized, duration_unlimited=True,
+                estimates=estimates.build(profile,url,["moth"]+selected,storage.recent()),
+                tool_scope={tool: scope(tool, profile) for tool in ["moth"] + selected})
     scan["tool_versions"] = {tool["id"]: tool["version"] or "system installation"
                              for tool in installed if tool["id"] in selected}
     with LOCK:
@@ -49,6 +62,39 @@ def stop(scan_id):
     return bool(event)
 
 
+def basic_profile(scan, cancel):
+    p = get_profile(scan.get("profile", "low"))
+    if p['pages'] == 1:
+        return basic(scan['target'], scan['allow_private'])
+    queue = deque([(scan['target'], 0)])
+    visited, found, errors = set(), [], []
+    coverage = {}
+    completed = 0
+    while queue and len(visited) < p['pages']:
+        if cancel.is_set():
+            raise Cancelled()
+        url, depth = queue.popleft()
+        if url in visited:
+            continue
+        visited.add(url)
+        links = []
+        try:
+            results, page_coverage = basic(url, scan['allow_private'], discover=links if depth < p['depth'] else None)
+            found.extend(results)
+            completed += 1
+            if url == scan['target']:
+                coverage.update(page_coverage)
+            queue.extend((link, depth+1) for link in links if link not in visited and len(queue) < 1000)
+        except Exception as exc:
+            if url == scan['target']:
+                raise
+            errors.append(dict(tool='moth', message=url + ': ' + str(exc)[:2000]))
+        if queue and cancel.wait(1 / p['rate']):
+            raise Cancelled()
+    coverage.update(coverage='Same-origin GET crawl; each page checked once; no redirects.', pages_checked=completed, pages_attempted=len(visited), page_limit=p['pages'], limit_reached=any(url not in visited for url, depth in queue), page_errors=errors)
+    return found, coverage
+
+
 def worker(scan, cancel):
     try:
         scan.update(status="running", stage="Resolving target")
@@ -61,14 +107,29 @@ def worker(scan, cancel):
                 raise Cancelled()
             scan.update(stage=tool, progress=int(index / len(stages) * 100))
             storage.save(scan)
-            step = {"tool": tool, "status": "running"}
+            step = {"tool": tool, "status": "running", "started": storage.now()}
             scan["steps"].append(step)
+            storage.save(scan)
+            started = time.monotonic()
             try:
+                reason = incompatibility(tool, scan["target"])
+                if reason:
+                    step.update(status="skipped", reason=reason)
+                    continue
                 if tool == "moth":
-                    found, coverage = basic(scan["target"], scan["allow_private"])
+                    found, coverage = basic_profile(scan, cancel)
                     scan["coverage"] = coverage
+                    scan["errors"].extend(coverage.get("page_errors", []))
                 else:
-                    found = run_tool(tool, scan["target"], RUNS / scan["id"] / tool, cancel, scan["allow_private"])
+                    kwargs = {"profile": scan.get("profile", "low")}
+                    if tool == "zap":
+                        def progress(details):
+                            step["details"] = details
+                            if "spider" in details:
+                                scan["spider"] = details["spider"]
+                            storage.save(scan)
+                        kwargs["progress"] = progress
+                    found = run_tool(tool, scan["target"], RUNS / scan["id"] / tool, cancel, scan["allow_private"], **kwargs)
                 existing = {f["id"] for f in scan["findings"]}
                 scan["findings"] += [item for item in found if item["id"] not in existing]
                 step["status"] = "completed"
@@ -79,6 +140,10 @@ def worker(scan, cancel):
             except Exception as exc:
                 step["status"] = "failed"
                 scan["errors"].append({"tool": tool, "message": str(exc)[:2500]})
+            finally:
+                step["finished"] = storage.now()
+                step["elapsed_seconds"] = time.monotonic() - started
+                step["completion_order"] = sum("completion_order" in previous for previous in scan["steps"] if previous is not step)
             storage.save(scan)
         if cancel.is_set():
             raise Cancelled()

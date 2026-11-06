@@ -55,3 +55,26 @@ def test_scanner_description_is_preserved_without_repeating_the_intro():
     assert english[1].count(SCANNER[0][0]) == 1
     assert 'Specific scanner description.' in english[1]
     assert english[2] == 'Specific fix.'
+
+
+def test_findings_sort_by_numeric_severity_and_recorded_tool_completion():
+    from moth.findings import finding
+    from moth.presentation import finding_sort_keys
+    findings = [finding('one','https://example.com','1','info',tool='httpx'),
+                finding('two','https://example.com','2','high',tool='nuclei'),
+                finding('three','https://example.com','3','medium',tool='moth'),
+                finding('four','https://example.com','4','low',tool='nuclei')]
+    scan = dict(findings=findings, steps=[dict(tool='moth',completion_order=0),dict(tool='nuclei',completion_order=2),dict(tool='httpx',completion_order=1)])
+    original = list(findings)
+    def order(mode):
+        keys=finding_sort_keys(scan,mode)
+        return [f['code'] for f in sorted(findings,key=lambda f:keys[f['id']])]
+    assert order('severity_desc')==['two','three','four','one']
+    assert order('severity_asc')==['one','four','three','two']
+    assert order('completion_oldest')==['three','one','two','four']
+    assert order('completion_newest')==['two','four','one','three']
+    assert order('tool_az')==['one','three','two','four']
+    assert scan['findings']==original
+    for step in scan['steps']:
+        step.pop('completion_order')
+    assert order('completion_oldest')==['three','two','four','one']

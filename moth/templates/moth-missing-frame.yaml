@@ -1,0 +1,24 @@
+id: moth-missing-frame
+info:
+  name: X-Frame-Options header not observed
+  author: moth
+  severity: info
+  description: An optional browser-hardening header was not observed. Other protections may exist; this is not proof of exploitation.
+  remediation: Review the response and configure a suitable browser protection after compatibility testing.
+  tags: moth,config
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+    redirects: false
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: header
+        words: ["text/html"]
+        case-insensitive: true
+      - type: word
+        part: header
+        words: ["x-frame-options:"]
+        case-insensitive: true
+        negative: true

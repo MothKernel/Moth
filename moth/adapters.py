@@ -15,6 +15,12 @@ from .tools import command, is_docker_zap
 from .processes import external_environment, no_console_flags
 
 
+# Subfinder uses context.WithTimeout even for 0, which cancels immediately.
+# This positive horizon (~190 years) removes a practical CLI scan deadline
+# without overflowing Go time.Duration; Moth still supports immediate Stop.
+SUBFINDER_NO_DEADLINE_MINUTES = 100_000_000
+
+
 class Cancelled(Exception):
     pass
 
@@ -33,12 +39,12 @@ def execute(args, directory, cancel, timeout=180, stdin=None, accepted=(0,)):
                 process.stdin.close()
             except BrokenPipeError:
                 pass
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout if timeout is not None else None
         try:
             while process.poll() is None:
                 if cancel.wait(.15):
                     raise Cancelled()
-                if time.monotonic() > deadline:
+                if deadline is not None and time.monotonic() > deadline:
                     raise ValueError("Tool exceeded its execution time limit.")
                 if log.stat().st_size + error.stat().st_size > 8_000_000:
                     raise ValueError("Tool output exceeded the size limit.")
@@ -91,7 +97,7 @@ def parse(tool, url, output, directory):
         if not rows:
             raise ValueError("httpx did not return a web response. Check reachability and the selected protocol.")
         for row in rows[:10]:
-            safe = {key: row[key] for key in ("status_code", "title", "webserver", "tech", "host", "port") if key in row}
+            safe = {key: row[key] for key in ("status_code", "title", "webserver", "tech", "host", "port", "content_type", "content_length", "a", "http2", "tls") if key in row}
             items.append(observation(tool, url, "Web service observed", json.dumps(safe, ensure_ascii=False)))
     elif tool == "katana":
         seen = set()
@@ -115,7 +121,7 @@ def parse(tool, url, output, directory):
     elif tool in ("dnsx", "subfinder"):
         safe = []
         for row in rows[:100]:
-            safe.append({key: row[key] for key in ("host", "a", "aaaa", "cname", "mx", "ns", "source") if key in row})
+            safe.append({key: row[key] for key in ("host", "a", "aaaa", "cname", "mx", "ns", "txt", "soa", "srv", "ptr", "caa", "axfr", "source") if key in row})
         if safe:
             items.append(observation(tool, url, "DNS records" if tool == "dnsx" else "Subdomains discovered (not scanned)",
                                      json.dumps(safe, ensure_ascii=False)[:3000]))
@@ -156,10 +162,18 @@ def parse(tool, url, output, directory):
                                              recommendation="Verify the detected version and update to a maintained release. Exploitability needs manual review."))
     elif tool == "nmap":
         tree = ET.fromstring((directory / "result.xml").read_text(encoding="utf-8"))
+        if any(host.get("timedout") == "true" for host in tree.findall(".//host")):
+            raise ValueError("Nmap reached its host time limit; port coverage is incomplete.")
         for port in tree.findall(".//port"):
             state = port.find("state")
             if state is not None:
-                items.append(observation(tool, url, "Web port observed", f"TCP {port.get('portid')}: {state.get('state')}"))
+                details = f"TCP {port.get('portid')}: {state.get('state')}"
+                service = port.find("service")
+                if service is not None:
+                    details += "\n" + json.dumps(service.attrib, ensure_ascii=False)
+                for script in port.findall("script"):
+                    details += "\n" + script.get("id", "NSE") + ": " + script.get("output", "")[:1500]
+                items.append(observation(tool, url, "Web port observed", details))
     elif tool == "zap":
         report = directory / "result.json"
         if not report.exists():
@@ -189,7 +203,10 @@ class Scripts(HTMLParser):
             self.sources += [value for key, value in attrs if key == "src" and value]
 
 
-def run_tool(tool, url, directory, cancel, allow_private=False):
+def run_tool(tool, url, directory, cancel, allow_private=False, profile="low", progress=None):
+    from .profiles import get_profile
+    from .config import TOOLS
+    settings = get_profile(profile)
     cmd = command(tool)
     if not cmd:
         raise ValueError("Tool is not installed. Open Tools to install it.")
@@ -200,22 +217,55 @@ def run_tool(tool, url, directory, cancel, allow_private=False):
     accepted = (0,)
     if tool == "httpx":
         args = cmd + ["-u", url, "-json", "-silent", "-duc", "-status-code", "-title", "-tech-detect", "-no-fallback-scheme", "-threads", "1", "-rate-limit", "2", "-timeout", "10", "-response-size-to-read", "524288"]
+        if profile != "low":
+            args += ["-content-type", "-content-length", "-ip", "-http2", "-tls-grab"]
     elif tool == "katana":
         scope = "^" + re.escape(f"{p.scheme}://{p.netloc}") + r"(?:/|$)"
-        args = cmd + ["-u", url, "-jsonl", "-silent", "-d", "2", "-cs", scope, "-dr", "-ct", "30s", "-c", "1", "-p", "1", "-rl", "2", "-mrs", "524288", "-iqp"]
+        args = cmd + ["-u", url, "-jsonl", "-silent", "-d", str(settings["depth"]), "-cs", scope, "-dr", "-c", "1", "-p", "1", "-rl", "2", "-mrs", "524288", "-iqp"]
+        if settings["js"]:
+            args += ["-jc", "-kf", "all"]
+        if profile == "ultra":
+            args += ["-jsl"]
     elif tool == "nuclei":
-        args = cmd + ["-u", url, "-t", str(ROOT / "templates"), "-jsonl", "-silent", "-duc", "-dr", "-c", "1", "-rl", "2", "-timeout", "10", "-retries", "0", "-omit-raw"]
+        templates = ROOT / "templates"
+        if profile == "low":
+            templates = templates / "moth-missing-csp.yaml"
+        elif profile in ("high", "ultra"):
+            templates = TOOLS / "nuclei/templates/http"
+            if not templates.is_dir():
+                execute(cmd + ["-ut", "-ud", str(templates.parent)], directory, cancel, timeout=None)
+            if not templates.is_dir():
+                raise ValueError("The official Nuclei HTTP templates could not be prepared.")
+        args = cmd + ["-u", url, "-t", str(templates), "-jsonl", "-silent", "-duc", "-dr", "-c", "1", "-rl", "2", "-timeout", "10", "-retries", "0", "-omit-raw"]
+        if profile in ("high", "ultra"):
+            args += ["-pt", "http", "-dut", "-ni", "-etags", "dos,fuzz,bruteforce,creds-stuffing,token-spray"]
+            if profile == "high":
+                args += ["-tags", "tech,exposure,misconfig"]
     elif tool == "dnsx":
         args = cmd + ["-json", "-silent", "-a", "-aaaa", "-cname", "-resp", "-t", "1", "-rl", "2"]
+        if profile != "low":
+            args += ["-mx", "-ns", "-txt", "-soa"]
+        if profile == "ultra":
+            args += ["-srv", "-ptr", "-caa", "-axfr"]
         stdin = p.hostname + "\n"
     elif tool == "subfinder":
-        args = cmd + ["-d", p.hostname, "-json", "-silent", "-rl", "2", "-timeout", "10", "-max-time", "1"]
+        args = cmd + ["-d", p.hostname, "-json", "-silent", "-rl", "2", "-timeout", "10", "-max-time", str(SUBFINDER_NO_DEADLINE_MINUTES)]
+        if profile in ("high", "ultra"):
+            args += ["-all"]
     elif tool == "sslyze":
         if p.scheme != "https":
             raise ValueError("Select an HTTPS URL for SSLyze.")
-        args = cmd + ["--json_out", str(directory / "result.json"), f"{p.hostname}:{p.port or 443}"]
+        args = cmd + ["--json_out", str(directory / "result.json")]
+        if profile == "low":
+            args += ["--certinfo", "--tlsv1_2", "--tlsv1_3"]
+        elif profile == "medium":
+            args += ["--certinfo", "--sslv2", "--sslv3", "--tlsv1", "--tlsv1_1", "--tlsv1_2", "--tlsv1_3"]
+        # With no explicit scan commands, SSLyze runs its complete default suite.
+        args += [f"{'[' + p.hostname + ']' if ':' in p.hostname else p.hostname}:{p.port or 443}"]
     elif tool == "wafw00f":
         args = cmd + [url, "-f", "json", "-o", str(directory / "result.json"), "-r"]
+        if profile in ("high", "ultra"):
+            args += ["-a"]
     elif tool == "retire":
         source = directory / "scripts"
         source.mkdir(exist_ok=True)
@@ -224,7 +274,7 @@ def run_tool(tool, url, directory, cancel, allow_private=False):
         parser.feed(body.decode("utf-8", "replace"))
         # Analyze the page's inline scripts plus up to five same-origin scripts.
         (source / "page.js").write_bytes(body)
-        for index, src in enumerate(parser.sources[:5]):
+        for index, src in enumerate(parser.sources[:settings["scripts"]]):
             if cancel.is_set():
                 raise Cancelled()
             candidate = normalize(urljoin(url, src))
@@ -235,35 +285,51 @@ def run_tool(tool, url, directory, cancel, allow_private=False):
                 (source / f"script-{index}.js").write_bytes(script)
         args = cmd + ["--path", str(source), "--outputformat", "json", "--outputpath", str(directory / "result.json"), "--exitwith", "0"]
     elif tool == "nmap":
-        # Scan only the resolved target address and explicitly selected web port; no NSE or OS scans.
-        args = cmd + (["-6"] if ":" in addresses[0] else []) + ["-sT", "-Pn", "-n", "--max-retries", "1", "--host-timeout", "30s", "-p", str(p.port or (443 if p.scheme == "https" else 80)), "-oX", str(directory / "result.xml"), addresses[0]]
+        args = cmd + (["-6"] if ":" in addresses[0] else []) + ["-sT", "-Pn", "-n", "--max-retries", "1", "--max-rate", "50"]
+        port = str(p.port or (443 if p.scheme == "https" else 80))
+        if settings["ports"] == "all":
+            args += ["-p", "1-65535"]
+        elif settings["ports"] == "common":
+            common = "21,22,23,25,53,80,110,111,135,139,143,161,389,443,445,465,587,636,993,995,1433,1521,2049,3306,3389,5432,5900,6379,8000,8080,8443,9200,27017"
+            args += ["-p", common + "," + port]
+        else:
+            args += ["-p", port]
+        if profile != "low":
+            args += ["-sV", "--version-light" if profile != "ultra" else "--version-all"]
+        if profile in ("high", "ultra"):
+            args += ["--script", "http-title,http-headers,http-security-headers,ssl-cert,ssl-enum-ciphers"]
+        args += ["-oX", str(directory / "result.xml"), addresses[0]]
     elif tool == "zap":
         docker_mode = is_docker_zap(cmd)
         report_dir = "/zap/wrk" if docker_mode else str(directory)
-        plan = {"env": {"contexts": [{"name": "moth", "urls": [url]}], "parameters": {"failOnError": True}},
-                "jobs": [{"type": "requestor", "requests": [{"url": url, "method": "GET", "httpVersion": "HTTP/1.1"}]},
-                         {"type": "passiveScan-wait", "parameters": {"maxDuration": 1}},
-                         {"type": "report", "parameters": {"template": "traditional-json", "reportDir": report_dir, "reportFile": "result.json"}}]}
-        (directory / "plan.yaml").write_text(json.dumps(plan))
-        if docker_mode:
-            docker, image = cmd
-            container = "moth-" + directory.parent.name
-            args = [docker, "run", "--rm", "--name", container]
-            if os.name != "nt" and hasattr(os, "getuid"):
-                args += ["--user", f"{os.getuid()}:{os.getgid()}"]
-            args += ["-v", f"{directory}:/zap/wrk:rw", image, "zap.sh", "-cmd", "-autorun", "/zap/wrk/plan.yaml"]
-        else:
-            args = cmd + ["-cmd", "-dir", str(directory / "home"), "-autorun", str(directory / "plan.yaml")]
-        accepted = (0, 2)  # automation warnings can yield exit 2
+        origin = f"{p.scheme}://{p.netloc}"
+        context = {"name": "moth", "urls": [url], "includePaths": ["^" + re.escape(origin) + r"(?:/.*)?$"],
+                   "excludePaths": [r"(?i)^" + re.escape(origin) + r"/.*(?:logout|signout|delete|destroy).*"]}
+        jobs = [{"type": "requestor", "requests": [{"url": url, "method": "GET", "httpVersion": "HTTP/1.1"}]}]
+        if settings["spider"]:
+            jobs.append({"type": "spider", "parameters": {"context": "moth", "url": url, "maxDuration": 0,
+                         "maxDepth": settings["depth"], "maxChildren": settings["pages"], "threadCount": 1,
+                         "logoutAvoidance": True, "postForm": False, "processForm": True}})
+        jobs.append({"type": "passiveScan-wait", "parameters": {"maxDuration": 0}})
+        if settings["active"]:
+            jobs.append({"type": "activeScan", "parameters": {"context": "moth", "url": url,
+                "maxScanDurationInMins": 0, "maxRuleDurationInMins": 0,
+                "threadPerHost": 1, "delayInMs": 250, "addQueryParam": True, "scanHeadersAllRequests": profile == "ultra"},
+                "policyDefinition": {"defaultStrength": "High" if profile == "ultra" else "Medium", "defaultThreshold": "Low" if profile == "ultra" else "Medium"}})
+            jobs.append({"type": "passiveScan-wait", "parameters": {"maxDuration": 0}})
+        jobs.append({"type": "report", "parameters": {"template": "traditional-json", "reportDir": report_dir, "reportFile": "result.json"}})
+        plan = {"env": {"contexts": [context], "parameters": {"failOnError": True}}, "jobs": jobs}
     else:
         raise ValueError("Unsupported tool.")
     try:
-        output = execute(args, directory, cancel, timeout=240 if tool == "zap" else 180, stdin=stdin, accepted=accepted)
+        if tool == "zap":
+            from .zap_runtime import run as run_zap
+            run_zap(cmd, url, directory, plan, cancel, progress)
+            output = ""
+        else:
+            output = execute(args, directory, cancel, timeout=None, stdin=stdin, accepted=accepted)
         return parse(tool, url, output, directory)
     finally:
-        if tool == "zap" and is_docker_zap(cmd):
-            # docker client termination alone does not stop the container.
-            subprocess.run([cmd[0], "rm", "-f", "moth-" + directory.parent.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, env=external_environment(), creationflags=no_console_flags())
         # Raw output may contain cookies, request material or URLs with tokens.
         for path in directory.rglob("*"):
             if path.is_file():

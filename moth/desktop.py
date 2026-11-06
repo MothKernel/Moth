@@ -11,12 +11,15 @@ from PySide6.QtWidgets import (
     QComboBox, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QStackedWidget,
     QGroupBox, QScrollArea, QSplitter, QTreeWidget, QTreeWidgetItem, QPlainTextEdit,
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog,
-    QMessageBox, QAbstractItemView, QSizePolicy, QTabWidget,
+    QMessageBox, QAbstractItemView, QSizePolicy, QTabWidget, QButtonGroup,
 )
 from . import __version__, engine, storage, tools, updates
 from .config import ROOT, DATA
+from .profiles import PROFILES, scope
+from .tips import TipDeck
+from . import estimates
 from .reports import render
-from .presentation import describe, error_help, evidence_text, OBSERVATIONS
+from .presentation import describe, error_help, evidence_text, OBSERVATIONS, finding_sort_keys
 
 RESOURCES = ROOT / "resources"
 TRANSLATIONS = json.loads((RESOURCES / "translations.json").read_text(encoding="utf-8"))
@@ -24,7 +27,11 @@ FINISHED = {"completed", "partial", "failed", "cancelled", "interrupted"}
 
 STYLE = """
 QWidget { font-family: 'Segoe UI', 'DejaVu Sans'; font-size: 13px; color: #203c32; }
-QMainWindow, QWidget#content { background: #f5f5ef; }
+QMainWindow, QWidget#content, QDialog, QMessageBox { background: #f5f5ef; }
+QMessageBox QLabel { color: #203c32; background: transparent; }
+QMessageBox QTextEdit { background: white; color: #203c32; border: 1px solid #dce3d4; }
+QFrame#tipCard { background: #edf2e6; border: 1px solid #dce3d4; border-radius: 7px; }
+QPushButton#tipAction { font-size: 11px; padding: 6px 8px; }
 QFrame#sidebar { background: #eaf0e3; border-right: 1px solid #dbe2d3; }
 QLabel#brand { font-size: 34px; font-weight: 700; }
 QLabel#heading { font-size: 27px; font-weight: 600; }
@@ -113,6 +120,13 @@ QPushButton#primary:hover { background: #a6cf8b; }
 """
 
 
+class FindingTreeItem(QTreeWidgetItem):
+    sort_key = (0, 0)
+
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key
+
+
 class OptionCheckBox(QCheckBox):
     """Use the entire option row as the click target, including trailing space."""
     def __init__(self, *args, **kwargs):
@@ -158,6 +172,10 @@ class MainWindow(QMainWindow):
         self.theme = self.settings.value("theme", "light")
         if self.theme not in ("light", "dark"):
             self.theme = "light"
+        self.tip_deck = TipDeck()
+        self.current_tip = None
+        self._tips_scan_id = None
+        self.profile = "low"
         self.current = None
         self._last_scan = None
         self._last_tools = None
@@ -177,6 +195,9 @@ class MainWindow(QMainWindow):
         self.translate()
         self.refresh_tools(force=True)
         self.refresh_history(force=True)
+        self.tip_timer = QTimer(self)
+        self.tip_timer.setInterval(20000)
+        self.tip_timer.timeout.connect(self.next_tip)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(500)
@@ -276,6 +297,25 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
+        profile_row = QHBoxLayout()
+        profile_row.addWidget(self.label("scan_level"))
+        self.profile_group = QButtonGroup(self)
+        self.profile_group.setExclusive(True)
+        self.profile_buttons = {}
+        for name in PROFILES:
+            button = OptionCheckBox(name.title())
+            button.setObjectName("profile_" + name)
+            button.setProperty("profile", name)
+            self.profile_group.addButton(button)
+            self.profile_buttons[name] = button
+            profile_row.addWidget(button)
+        self.profile_buttons[self.profile].setChecked(True)
+        self.profile_group.buttonToggled.connect(lambda button, checked: self.change_profile(button.property("profile")) if checked else None)
+        profile_row.addStretch()
+        profile_row.addWidget(self.button("profile_details", self.show_profile_details))
+        layout.addLayout(profile_row)
+        self.profile_note = text_label(name="muted")
+        layout.addWidget(self.profile_note)
         self.scan_split = QSplitter(Qt.Orientation.Vertical)
         upper = QWidget()
         top = QHBoxLayout(upper)
@@ -289,11 +329,16 @@ class MainWindow(QMainWindow):
         self.target.setMaxLength(2048)
         self.target.returnPressed.connect(self.start_scan)
         form_layout.addWidget(self.target)
-        form_layout.addWidget(self.label("scope_note", "muted"))
+        self.scope_note = self.label("scope_note", "muted")
+        form_layout.addWidget(self.scope_note)
         self.authorized = self.bind(OptionCheckBox(), "authorized")
         self.authorized.setObjectName("authorized")
         self.lab = self.bind(OptionCheckBox(), "lab")
         self.lab.setObjectName("lab")
+        self.active_consent = self.bind(OptionCheckBox(), "active_consent")
+        self.active_consent.setObjectName("activeConsent")
+        self.active_consent.hide()
+        form_layout.addWidget(self.active_consent)
         form_layout.addWidget(self.authorized)
         form_layout.addWidget(self.lab)
         self.extra_toggle = self.bind(OptionCheckBox(), "extra_tools")
@@ -328,6 +373,10 @@ class MainWindow(QMainWindow):
         overview_layout.addWidget(self.progress)
         self.stage = text_label(name="muted")
         overview_layout.addWidget(self.stage)
+        self.total_time = text_label(name="muted")
+        self.current_time = text_label(name="muted")
+        overview_layout.addWidget(self.total_time)
+        overview_layout.addWidget(self.current_time)
         self.step_text = QPlainTextEdit()
         self.step_text.setReadOnly(True)
         self.step_text.setMaximumHeight(95)
@@ -336,9 +385,35 @@ class MainWindow(QMainWindow):
         self.stop_button.hide()
         overview_layout.addWidget(self.stop_button)
         overview_layout.addWidget(self.label("coverage_note", "muted"))
+        self.tip_card = QFrame()
+        self.tip_card.setObjectName("tipCard")
+        self.tip_card.setMinimumHeight(164)
+        tip_layout = QVBoxLayout(self.tip_card)
+        tip_layout.setContentsMargins(12, 10, 12, 10)
+        self.tip_heading = text_label(name="muted")
+        self.tip_body = text_label()
+        self.tip_body.setObjectName("tipText")
+        self.tip_body.setMinimumHeight(64)
+        self.tip_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        tip_layout.addWidget(self.tip_heading)
+        tip_layout.addWidget(self.tip_body)
+        tip_buttons = QHBoxLayout()
+        tip_buttons.addWidget(self.button("next_tip", self.next_tip, "tipAction"))
+        self.tip_pause = self.button("pause_tips", name="tipAction")
+        self.tip_pause.setCheckable(True)
+        self.tip_pause.toggled.connect(self.pause_tips)
+        tip_buttons.addWidget(self.tip_pause)
+        self.tip_source = self.button("tip_source", self.open_tip_source, "tipAction")
+        for button in (tip_buttons.itemAt(0).widget(), self.tip_pause, self.tip_source):
+            button.setMinimumHeight(28)
+        tip_buttons.addWidget(self.tip_source)
+        tip_buttons.addStretch()
+        tip_layout.addLayout(tip_buttons)
+        self.tip_card.hide()
+        overview_layout.addWidget(self.tip_card)
         overview_layout.addStretch()
         top.addWidget(overview, 2)
-        self.scan_split.addWidget(upper)
+        self.scan_split.addWidget(scroller(upper))
         lower = self.group("results")
         results_layout = QVBoxLayout(lower)
         exports = QHBoxLayout()
@@ -393,12 +468,40 @@ class MainWindow(QMainWindow):
         self.finding_search.setClearButtonEnabled(True)
         self.finding_search.textChanged.connect(self.filter_findings)
         filters.addWidget(self.finding_search, 1)
+        self.reset_filters_button = self.button("reset_filters", self.reset_finding_filters)
+        filters.addWidget(self.reset_filters_button)
+        findings_layout.addLayout(filters)
+        filter_row = QHBoxLayout()
         self.severity_filter = QComboBox()
+        self.severity_filter.setObjectName("severityFilter")
         for key in ("all_severities", "critical", "high", "medium", "low", "info"):
             self.severity_filter.addItem(self.tr_text(key), key)
-        self.severity_filter.currentIndexChanged.connect(self.filter_findings)
-        filters.addWidget(self.severity_filter)
-        findings_layout.addLayout(filters)
+        self.tool_filter = QComboBox()
+        self.tool_filter.setObjectName("toolFilter")
+        self.tool_filter.addItem(self.tr_text("all_tools"), "all_tools")
+        self.tool_filter.addItem("moth", "moth")
+        for tool in tools.REGISTRY:
+            self.tool_filter.addItem(tool["name"], tool["id"])
+        self.kind_filter = QComboBox()
+        self.kind_filter.setObjectName("kindFilter")
+        for key in ("all_types", "configuration", "hardening", "review", "information"):
+            self.kind_filter.addItem(self.tr_text(key), key)
+        for widget in (self.severity_filter, self.tool_filter, self.kind_filter):
+            widget.currentIndexChanged.connect(self.filter_findings)
+            filter_row.addWidget(widget)
+        self.visible_findings = text_label(name="muted")
+        filter_row.addWidget(self.visible_findings, 1)
+        findings_layout.addLayout(filter_row)
+        sorting = QHBoxLayout()
+        sorting.addWidget(self.label("sort_by"))
+        self.sort_order = QComboBox()
+        self.sort_order.setObjectName("findingSort")
+        for key in ("completion_oldest", "completion_newest", "severity_desc", "severity_asc", "tool_az", "title_az"):
+            self.sort_order.addItem(self.tr_text(key), key)
+        self.sort_order.currentIndexChanged.connect(self.sort_findings)
+        sorting.addWidget(self.sort_order)
+        sorting.addStretch()
+        findings_layout.addLayout(sorting)
         findings_layout.addWidget(result_split, 1)
         self.result_tabs.addTab(findings_page, "")
         error_page = QWidget()
@@ -432,13 +535,28 @@ class MainWindow(QMainWindow):
         self.coverage_details.setReadOnly(True)
         checks_layout.addWidget(self.coverage_details)
         self.result_tabs.addTab(checks_page, "")
+        spider_page = QWidget()
+        spider_layout = QVBoxLayout(spider_page)
+        self.spider_summary = text_label()
+        spider_layout.addWidget(self.spider_summary)
+        self.spider_search = QLineEdit()
+        self.spider_search.textChanged.connect(self.filter_spider)
+        spider_layout.addWidget(self.spider_search)
+        self.spider_urls = QTreeWidget()
+        self.spider_urls.setObjectName("spiderUrls")
+        self.spider_urls.setRootIsDecorated(False)
+        self.spider_urls.setColumnCount(4)
+        self.spider_urls.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.spider_urls.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        spider_layout.addWidget(self.spider_urls, 1)
+        self.result_tabs.addTab(spider_page, "ZAP Spider")
         self.review_errors = self.button("review_errors", lambda: self.result_tabs.setCurrentIndex(1))
         self.review_errors.setObjectName("stop")
         self.review_errors.hide()
         results_layout.addWidget(self.review_errors)
         results_layout.addWidget(self.result_tabs, 1)
         self.scan_split.addWidget(lower)
-        self.scan_split.setSizes([310, 550])
+        self.scan_split.setSizes([500, 360])
         layout.addWidget(self.scan_split)
         return page
 
@@ -485,6 +603,34 @@ class MainWindow(QMainWindow):
         if index == 2:
             self.refresh_history(force=True)
 
+    def change_profile(self, name):
+        if self.running():
+            return
+        self.profile = name
+        self.scope_note.setText(self.tr_text("scope_note" if name == "low" else "scope_note_extended"))
+        self.active_consent.setChecked(False)
+        self.active_consent.setVisible(name in ("high", "ultra"))
+        self.profile_note.setText(self.tr_text("profile_" + name + "_note"))
+        if name == "ultra":
+            self.extra_toggle.setChecked(True)
+        self.refresh_tools(force=True)
+        self.render_scan()
+
+    def create_profile_dialog(self):
+        dialog = QMessageBox(self)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setPalette(self.palette())
+        dialog.setStyleSheet(theme_style(self.theme))
+        dialog.setWindowTitle(self.tr_text("profile_details"))
+        dialog.setText(self.profile.title() + "\n\n" + self.tr_text("profile_" + self.profile + "_note") + "\n\n" + self.tr_text("profile_limits"))
+        dialog.setDetailedText("\n\n".join(tool + ": " + scope(tool, self.profile) for tool in ["moth"] + [t["id"] for t in tools.REGISTRY]))
+        return dialog
+
+    def show_profile_details(self):
+        dialog = self.create_profile_dialog()
+        dialog.exec()
+        dialog.deleteLater()
+
     def apply_theme(self):
         self.setStyleSheet(theme_style(self.theme))
         palette = QPalette()
@@ -504,6 +650,7 @@ class MainWindow(QMainWindow):
         ):
             palette.setColor(role, QColor(night if dark else light))
         self.setPalette(palette)
+        QApplication.instance().setPalette(palette)
 
     def change_theme(self, index):
         self.theme = self.theme_box.itemData(index)
@@ -516,14 +663,24 @@ class MainWindow(QMainWindow):
         self.translate()
 
     def translate(self):
+        self.profile_note.setText(self.tr_text("profile_" + self.profile + "_note"))
         self.theme_box.setItemText(0, self.tr_text("theme_light"))
         self.theme_box.setItemText(1, self.tr_text("theme_dark"))
         for widget, key, setter in self._translated:
             getattr(widget, setter)(self.tr_text(key))
+        self.scope_note.setText(self.tr_text("scope_note" if self.profile == "low" else "scope_note_extended"))
         self.heading.setText(self.tr_text(("assessment", "tools", "history")[self.pages.currentIndex()]))
         self.finding_search.setPlaceholderText(self.tr_text("search_findings"))
-        for index in range(self.severity_filter.count()):
-            self.severity_filter.setItemText(index, self.tr_text(self.severity_filter.itemData(index)))
+        for widget in (self.severity_filter, self.kind_filter, self.sort_order):
+            for index in range(widget.count()):
+                widget.setItemText(index, self.tr_text(widget.itemData(index)))
+        self.tool_filter.setItemText(0, self.tr_text("all_tools"))
+        self.severity_filter.setToolTip(self.tr_text("severity"))
+        self.tool_filter.setToolTip(self.tr_text("tools"))
+        self.kind_filter.setToolTip(self.tr_text("result_type"))
+        self.sort_order.setToolTip(self.tr_text("completion_order_note"))
+        self.spider_urls.setHeaderLabels([self.tr_text("website"), "HTTP", self.tr_text("content_type"), self.tr_text("visited")])
+        self.spider_search.setPlaceholderText(self.tr_text("search_spider"))
         self.error_list.setHeaderLabels([self.tr_text("tools"), self.tr_text("error_reason")])
         self.check_list.setHeaderLabels([self.tr_text("tools"), self.tr_text("status"), self.tr_text("check_scope")])
         self.update_result_tabs()
@@ -533,6 +690,7 @@ class MainWindow(QMainWindow):
         self.refresh_tools(force=True)
         self.refresh_history(force=True)
         self.render_scan()
+        self.render_tip()
 
     def show_notice(self, message):
         self.notice.setText(message)
@@ -544,7 +702,7 @@ class MainWindow(QMainWindow):
     def start_scan(self):
         try:
             selected = [tool for tool, check in self.tool_checks.items() if check.isChecked()]
-            identifier = engine.start(self.target.text(), selected, self.authorized.isChecked(), self.lab.isChecked())
+            identifier = engine.start(self.target.text(), selected, self.authorized.isChecked(), self.lab.isChecked(), profile=self.profile, active_authorized=self.active_consent.isChecked())
             self.current = storage.get(identifier)
             self._last_scan = None
             self.show_notice("")
@@ -570,15 +728,58 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.show_notice(str(exc))
 
+    def next_tip(self):
+        self.current_tip = self.tip_deck.next()
+        self.render_tip()
+        if hasattr(self, "tip_timer") and self.tip_timer.isActive():
+            self.tip_timer.start()
+
+    def render_tip(self):
+        if self.current_tip is None:
+            return
+        self.tip_heading.setText(self.tr_text("while_scanning") + " · " + self.tr_text("tip_" + self.current_tip["category"]))
+        self.tip_body.setText(self.current_tip["text"][self.language])
+        self.tip_pause.setText(self.tr_text("resume_tips" if self.tip_pause.isChecked() else "pause_tips"))
+        self.tip_source.setVisible(bool(self.current_tip["source"]))
+
+    def pause_tips(self, paused):
+        if paused:
+            self.tip_timer.stop()
+        elif self.running():
+            self.tip_timer.start()
+        self.render_tip()
+
+    def open_tip_source(self):
+        if self.current_tip and self.current_tip["source"]:
+            QDesktopServices.openUrl(QUrl(self.current_tip["source"]))
+
+    def sync_tips(self, running):
+        self.tip_card.setVisible(running)
+        if not running:
+            if hasattr(self, "tip_timer"):
+                self.tip_timer.stop()
+            self._tips_scan_id = None
+            return
+        if self._tips_scan_id != self.current["id"]:
+            self._tips_scan_id = self.current["id"]
+            self.tip_pause.setChecked(False)
+            self.next_tip()
+            self.tip_timer.start()
+
     def render_scan(self):
         running = bool(self.running())
+        self.sync_tips(running)
+        self.render_estimates()
         self.start_button.setEnabled(not running)
         self.target.setEnabled(not running)
         self.authorized.setEnabled(not running)
         self.lab.setEnabled(not running)
+        self.active_consent.setEnabled(not running)
+        for button in self.profile_buttons.values():
+            button.setEnabled(not running)
         self.stop_button.setVisible(running)
         for row in self.tool_rows:
-            self.tool_checks[row["id"]].setEnabled(row["status"] == "ready" and not running)
+            self.tool_checks[row["id"]].setEnabled(row["status"] == "ready" and not running and self.profile != "ultra")
         if self.current is None:
             self.progress_title.setText(self.tr_text("idle_title"))
             self.stage.setText(self.tr_text("idle_description"))
@@ -595,7 +796,7 @@ class MainWindow(QMainWindow):
         self.stage.setText(scan["target"] + "\n" + self.tr_text(scan["status"]) + " · " + scan["stage"])
         self.step_text.setPlainText("\n".join(step["tool"] + " — " + self.tr_text(step["status"]) for step in scan["steps"]))
         completed = sum(step["status"] == "completed" for step in scan["steps"])
-        self.summary.setText(self.tr_text("assessment_summary").format(findings=len(scan["findings"]), errors=len(scan["errors"]), completed=completed, total=len(scan.get("tools", []))+1))
+        self.summary.setText(self.tr_text("assessment_summary").format(findings=len(scan["findings"]), errors=len(scan["errors"]), completed=completed, skipped=sum(step["status"] == "skipped" for step in scan["steps"]), total=len(scan.get("tools", []))+1))
         self.render_diagnostics()
         self.review_errors.setVisible(bool(scan["errors"]))
         new_scan = self._rendered_scan_id != scan["id"]
@@ -608,7 +809,7 @@ class MainWindow(QMainWindow):
         selected_item = None
         for finding in scan["findings"]:
             title = describe(finding, self.language)[0]
-            item = QTreeWidgetItem([self.tr_text(finding["severity"]), title, finding["tool"]])
+            item = FindingTreeItem([self.tr_text(finding["severity"]), title, finding["tool"]])
             item.setData(0, Qt.ItemDataRole.UserRole, finding["id"])
             for column in range(3):
                 item.setToolTip(column, title + "\n" + finding["tool"])
@@ -622,7 +823,54 @@ class MainWindow(QMainWindow):
             self.result_title.setText(self.tr_text("results"))
             self.explanation.setPlainText(self.tr_text("running_description") if running else self.tr_text("no_completed_results") if scan["errors"] else self.tr_text("no_findings"))
             self.technical.clear()
+        self.sort_findings()
         self.filter_findings()
+
+    def render_estimates(self):
+        scan = self.current
+        if scan is None:
+            self.total_time.setText(self.tr_text("estimate_idle"))
+            self.current_time.clear()
+            return
+        data = estimates.remaining(scan)
+        if not self.running():
+            value = estimates.recorded_time(scan)
+            self.total_time.setText(self.tr_text("total_elapsed").format(elapsed=estimates.duration(value) if value is not None else self.tr_text("estimate_unknown")))
+            self.current_time.clear()
+            return
+        remaining = self.tr_text("estimate_unknown") if data["unknown"] else estimates.duration(data["low"]) + " – " + estimates.duration(data["high"])
+        self.total_time.setText(self.tr_text("total_estimate").format(elapsed=estimates.duration(data["elapsed"]), remaining=remaining))
+        current = data["current"]
+        if current:
+            remaining = self.tr_text("estimate_overdue") if current["unknown"] else estimates.duration(current["low"]) + " – " + estimates.duration(current["high"])
+            phase = next((s.get("details", {}).get("phase", "") for s in scan.get("steps", []) if s["tool"] == current["tool"]), "")
+            tool = current["tool"] + (" / " + phase if phase else "")
+            self.current_time.setText(self.tr_text("tool_estimate").format(tool=tool, elapsed=estimates.duration(current["elapsed"]), remaining=remaining))
+        else:
+            self.current_time.setText(self.tr_text("estimate_unknown"))
+
+    def render_spider(self):
+        data = self.current.get("spider") if self.current else None
+        self.spider_urls.clear()
+        if data is None:
+            self.spider_summary.setText(self.tr_text("spider_unrecorded"))
+            return
+        html = data.get("html_pages")
+        pages = self.tr_text("estimate_unknown") if html is None else str(html)
+        if html is not None and not data.get("html_count_complete"):
+            pages = self.tr_text("at_least").format(count=html)
+        self.spider_summary.setText(self.tr_text("spider_summary").format(status=self.tr_text(data.get("status", "unavailable")), pages=pages, visited=data.get("visited_urls", 0) if data.get("counts_known", bool(data.get("urls"))) else self.tr_text("estimate_unknown"), discovered=data.get("discovered_urls", 0) if data.get("counts_known", bool(data.get("urls"))) else self.tr_text("estimate_unknown")) + "\n" + self.tr_text("spider_counts_note"))
+        for row in data.get("urls", []):
+            item = QTreeWidgetItem([row["url"], str(row.get("status_code", "")), row.get("content_type", ""), self.tr_text("yes" if row.get("processed") else "no")])
+            item.setToolTip(0, row["url"])
+            self.spider_urls.addTopLevelItem(item)
+        self.filter_spider()
+
+    def filter_spider(self, *args):
+        query = self.spider_search.text().strip().casefold()
+        for index in range(self.spider_urls.topLevelItemCount()):
+            item = self.spider_urls.topLevelItem(index)
+            item.setHidden(query not in " ".join(item.text(i) for i in range(4)).casefold())
 
     def select_finding(self, item, previous=None):
         if not item or not self.current:
@@ -643,15 +891,47 @@ class MainWindow(QMainWindow):
         self.explanation.setPlainText(body)
         self.technical.setPlainText("\n\n".join([finding["target"], finding["tool"] + " · " + self.tr_text(finding["confidence"]), finding["evidence"], finding.get("technical", "")]))
 
+    def sort_findings(self, *args):
+        if self.current is None:
+            return
+        keys = finding_sort_keys(self.current, self.sort_order.currentData(), self.language)
+        selected = self.findings.currentItem()
+        for index in range(self.findings.topLevelItemCount()):
+            item = self.findings.topLevelItem(index)
+            item.sort_key = keys[item.data(0, Qt.ItemDataRole.UserRole)]
+        self.findings.sortItems(0, Qt.SortOrder.AscendingOrder)
+        if selected:
+            self.findings.setCurrentItem(selected)
+
+    def reset_finding_filters(self):
+        for widget in (self.finding_search, self.severity_filter, self.tool_filter, self.kind_filter, self.sort_order):
+            widget.blockSignals(True)
+        self.finding_search.clear()
+        for widget in (self.severity_filter, self.tool_filter, self.kind_filter, self.sort_order):
+            widget.setCurrentIndex(0)
+        for widget in (self.finding_search, self.severity_filter, self.tool_filter, self.kind_filter, self.sort_order):
+            widget.blockSignals(False)
+        self.sort_findings()
+        self.filter_findings()
+
     def filter_findings(self, *args):
         query = self.finding_search.text().strip().casefold()
         severity = self.severity_filter.currentData()
+        tool = self.tool_filter.currentData()
+        kind = self.kind_filter.currentData()
+        visible_count = 0
         records = {f["id"]: f for f in self.current["findings"]} if self.current else {}
         for index in range(self.findings.topLevelItemCount()):
             item = self.findings.topLevelItem(index)
             record = records.get(item.data(0, Qt.ItemDataRole.UserRole), {})
             text = " ".join(item.text(column) for column in range(3)) + " " + record.get("evidence", "")
-            item.setHidden((bool(query) and query not in text.casefold()) or (severity != "all_severities" and record.get("severity") != severity))
+            hidden = ((bool(query) and query not in text.casefold())
+                      or (severity != "all_severities" and record.get("severity") != severity)
+                      or (tool != "all_tools" and record.get("tool") != tool)
+                      or (kind != "all_types" and record.get("kind") != kind))
+            item.setHidden(hidden)
+            visible_count += not hidden
+        self.visible_findings.setText(self.tr_text("visible_results").format(visible=visible_count, total=len(records)))
         selected = self.findings.currentItem()
         if selected and selected.isHidden():
             visible = next((self.findings.topLevelItem(i) for i in range(self.findings.topLevelItemCount()) if not self.findings.topLevelItem(i).isHidden()), None)
@@ -673,6 +953,7 @@ class MainWindow(QMainWindow):
 
     def render_diagnostics(self):
         self.update_result_tabs()
+        self.render_spider()
         selected = self.error_list.currentItem()
         previous = selected.data(0, Qt.ItemDataRole.UserRole) if selected else 0
         self.error_list.clear()
@@ -688,12 +969,15 @@ class MainWindow(QMainWindow):
             self.error_details.setPlainText(self.tr_text("no_errors"))
         self.check_list.clear()
         steps = {step["tool"]: step["status"] for step in self.current["steps"]}
+        reasons = {step["tool"]: step.get("reason", "") for step in self.current["steps"]}
         for tool in ["moth"] + self.current.get("tools", []):
-            scope = self.tr_text("basic_scope" if tool == "moth" else "tool_" + tool)
+            check_scope = self.current.get("tool_scope", {}).get(tool) or self.tr_text("basic_scope" if tool == "moth" else "tool_" + tool)
+            if reasons.get(tool):
+                check_scope = reasons[tool]
             status = steps.get(tool, "not_run")
-            self.check_list.addTopLevelItem(QTreeWidgetItem([tool, self.tr_text(status), scope]))
+            self.check_list.addTopLevelItem(QTreeWidgetItem([tool, self.tr_text(status), check_scope]))
         coverage = evidence_text(json.dumps(self.current.get("coverage", {}), ensure_ascii=False))
-        self.coverage_details.setPlainText(self.tr_text("coverage_details") + "\n\n" + (coverage or self.tr_text("no_coverage")) + "\n\n" + self.tr_text("coverage_note"))
+        self.coverage_details.setPlainText(self.tr_text("scan_level") + ": " + self.current.get("profile", "low").title() + "\n" + self.tr_text("profile_limits") + "\n\n" + self.tr_text("coverage_details") + "\n\n" + (coverage or self.tr_text("no_coverage")) + "\n\n" + self.tr_text("coverage_note"))
 
     def select_error(self, item, previous=None):
         if item is None or self.current is None:
@@ -775,7 +1059,9 @@ class MainWindow(QMainWindow):
             content.addLayout(buttons)
             self.tools_layout.addWidget(card, index // 2, index % 2)
             check = self.tool_checks[row["id"]]
-            check.setEnabled(row["status"] == "ready" and not self.running())
+            if self.profile == "ultra":
+                check.setChecked(True)
+            check.setEnabled(row["status"] == "ready" and not self.running() and self.profile != "ultra")
             check.setToolTip(self.tr_text("tool_" + row["id"]))
         self.tools_layout.setRowStretch((len(rows) + 1) // 2, 1)
 
@@ -881,6 +1167,7 @@ class MainWindow(QMainWindow):
                 return
             self._closing_install = True
         self.timer.stop()
+        self.tip_timer.stop()
         self.update_timer.stop()
         self.settings.sync()
         event.accept()

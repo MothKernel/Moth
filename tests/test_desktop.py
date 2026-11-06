@@ -73,6 +73,8 @@ def test_native_scan_and_exports(window, qapp, monkeypatch, tmp_path):
         QTest.mouseClick(window.start_button, Qt.MouseButton.LeftButton)
         wait_until(qapp, lambda: window.current and window.current["status"] == "completed")
         assert window.findings.topLevelItemCount() >= 5
+        assert window.current["steps"][0]["completion_order"] == 0
+        assert window.current["steps"][0]["started"] <= window.current["steps"][0]["finished"]
         assert "NEVER-SAVE-THIS" not in json.dumps(window.current)
         assert window.explanation.toPlainText()
         QTest.mouseClick(window.technical_toggle, Qt.MouseButton.LeftButton, pos=QPoint(8, window.technical_toggle.height() // 2))
@@ -217,3 +219,143 @@ def test_results_filters_evidence_error_help_and_coverage(window, qapp):
     window.language_box.setCurrentIndex(window.language_box.findData('ro'))
     assert window.result_tabs.tabText(1)=='Erori (1)'
     assert 'debifează SSLyze' in window.error_details.toPlainText()
+
+
+def test_combined_result_filters_sort_reset_and_selection(window):
+    from moth.findings import finding
+    findings=[finding('csp','https://example.com','CSP absent','low','hardening','', 'moth'),
+              finding('alert','https://example.com','Rule matched','high','review','', 'nuclei'),
+              finding('http','https://example.com','HTTP','medium','configuration','', 'moth'),
+              finding('inventory','https://example.com','Server','info','information','', 'httpx')]
+    window.current=dict(id='filters',target='https://example.com',status='completed',progress=100,stage='finished',
+        tools=['httpx','nuclei'],steps=[dict(tool='moth',status='completed',completion_order=0),dict(tool='nuclei',status='completed',completion_order=2),dict(tool='httpx',status='completed',completion_order=1)],
+        findings=findings,errors=[],coverage={})
+    window.render_scan()
+    chosen=window.findings.currentItem().data(0,Qt.ItemDataRole.UserRole)
+    def codes(visible_only=False):
+        items=[window.findings.topLevelItem(i) for i in range(window.findings.topLevelItemCount())]
+        ids=[item.data(0,Qt.ItemDataRole.UserRole) for item in items if not visible_only or not item.isHidden()]
+        return [next(f['code'] for f in findings if f['id']==key) for key in ids]
+    window.sort_order.setCurrentIndex(window.sort_order.findData('severity_desc'))
+    assert codes()==['alert','http','csp','inventory']
+    assert window.findings.currentItem().data(0,Qt.ItemDataRole.UserRole)==chosen
+    window.sort_order.setCurrentIndex(window.sort_order.findData('completion_newest'))
+    assert codes()==['alert','inventory','csp','http']
+    window.tool_filter.setCurrentIndex(window.tool_filter.findData('moth'))
+    window.kind_filter.setCurrentIndex(window.kind_filter.findData('configuration'))
+    window.severity_filter.setCurrentIndex(window.severity_filter.findData('medium'))
+    window.finding_search.setText('HTTP')
+    assert codes(True)==['http']
+    assert window.visible_findings.text()=='Showing 1 of 4'
+    window.kind_filter.setCurrentIndex(window.kind_filter.findData('information'))
+    assert codes(True)==[]
+    window.reset_filters_button.click()
+    assert codes(True)==['csp','http','inventory','alert']
+    assert window.visible_findings.text()=='Showing 4 of 4'
+    window.language_box.setCurrentIndex(window.language_box.findData('ro'))
+    assert window.tool_filter.currentText()=='Toate instrumentele'
+    assert window.visible_findings.text()=='Afișate: 4 din 4'
+
+
+def test_scan_level_selector_is_exclusive_and_controls_consent(window,monkeypatch):
+    from moth import engine
+    assert window.profile=='low'
+    window.profile_buttons['high'].click()
+    assert window.profile=='high'
+    assert window.active_consent.isVisible()
+    assert sum(b.isChecked() for b in window.profile_buttons.values())==1
+    window.active_consent.setChecked(True)
+    window.profile_buttons['medium'].click()
+    assert not window.active_consent.isVisible()
+    assert not window.active_consent.isChecked()
+    assert '5 pages' in window.profile_note.text()
+    assert 'One website origin' in window.scope_note.text()
+    window.profile_buttons['ultra'].click()
+    assert window.profile=='ultra'
+    assert all(c.isChecked() and not c.isEnabled() for c in window.tool_checks.values())
+    assert window.extra_toggle.isChecked()
+    calls=[]
+    def start(*args,**kwargs):
+        calls.append(kwargs)
+        raise ValueError('Profile verified without starting a scan')
+    monkeypatch.setattr(engine,'start',start)
+    window.active_consent.setChecked(True)
+    window.start_scan()
+    assert calls==[dict(profile='ultra',active_authorized=True)]
+    window.language_box.setCurrentIndex(window.language_box.findData('ro'))
+    assert '100 de pagini' in window.profile_note.text()
+
+
+@pytest.mark.parametrize('theme',['light','dark'])
+def test_profile_dialog_uses_readable_theme(window,qapp,theme):
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QLabel, QPushButton
+    window.theme_box.setCurrentIndex(window.theme_box.findData(theme))
+    dialog=window.create_profile_dialog()
+    dialog.show()
+    qapp.processEvents()
+    try:
+        pixel=dialog.grab().toImage().pixelColor(dialog.width()//2,8)
+        text=dialog.findChild(QLabel,'qt_msgbox_label').palette().color(QPalette.ColorRole.WindowText)
+        if theme=='dark':
+            assert max(pixel.red(),pixel.green(),pixel.blue())<110
+            assert min(text.red(),text.green(),text.blue())>180
+        else:
+            assert min(pixel.red(),pixel.green(),pixel.blue())>180
+            assert max(text.red(),text.green(),text.blue())<100
+        for button in dialog.findChildren(QPushButton):
+            if 'details' in button.text().lower():
+                button.click()
+                qapp.processEvents()
+                break
+        assert dialog.palette().color(QPalette.ColorRole.Window)==window.palette().color(QPalette.ColorRole.Window)
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_scan_tips_rotate_pause_translate_and_stop(window,qapp):
+    import copy
+    window.current=dict(id='tips-test',status='running',target='https://example.com/',progress=5,stage='moth',tools=[],steps=[],findings=[],errors=[],coverage={})
+    original=copy.deepcopy(window.current)
+    window.render_scan()
+    qapp.processEvents()
+    assert window.tip_card.isVisible()
+    assert window.tip_card.height() >= 164
+    assert window.tip_body.height() >= 64
+    assert window.tip_pause.height() >= 28
+    assert window.tip_timer.isActive() and window.tip_timer.interval()==20000
+    first=window.current_tip['id']
+    window.tip_timer.timeout.emit()
+    assert window.current_tip['id']!=first
+    window.tip_pause.click()
+    assert not window.tip_timer.isActive()
+    assert window.tip_pause.text()=='Resume tips'
+    window.next_tip()
+    assert not window.tip_timer.isActive()
+    window.language_box.setCurrentIndex(window.language_box.findData('ro'))
+    assert window.tip_body.text()==window.current_tip['text']['ro']
+    assert window.tip_pause.text()=='Reia sfaturile'
+    window.tip_pause.click()
+    assert window.tip_timer.isActive()
+    assert window.current==original
+    window.current['status']='completed'
+    window.render_scan()
+    assert not window.tip_card.isVisible()
+    assert not window.tip_timer.isActive()
+
+
+def test_spider_details_and_current_tool_estimates_are_visible(window,qapp):
+    window.current=dict(id='spider-ui',status='running',target='https://example.com/',created='2026-01-01T00:00:00+00:00',progress=20,stage='zap',tools=['zap'],findings=[],errors=[],coverage={},
+        steps=[dict(tool='moth',status='completed'),dict(tool='zap',status='running',started='2026-01-01T00:00:00+00:00')],
+        estimates={'zap':dict(low=10,high=20,source='rough')},
+        spider=dict(status='completed',html_pages=1,html_count_complete=True,discovered_urls=2,visited_urls=2,urls=[dict(url='https://example.com/page',processed=True,status_code='200',content_type='text/html'),dict(url='https://example.com/app.js',processed=True,status_code='200',content_type='application/javascript')]))
+    window.render_scan()
+    assert window.result_tabs.count()==4
+    assert 'HTML pages: 1' in window.spider_summary.text()
+    assert window.spider_urls.topLevelItemCount()==2
+    assert 'Longer than estimated' in window.current_time.text()
+    window.spider_search.setText('app.js')
+    assert window.spider_urls.topLevelItem(0).isHidden()
+    assert not window.spider_urls.topLevelItem(1).isHidden()
+    window.current['status']='completed'

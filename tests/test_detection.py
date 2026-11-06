@@ -78,14 +78,62 @@ def test_available_tool_does_not_trigger_reinstallation(monkeypatch):
 def test_native_zap_adapter_passes_plan_without_docker(monkeypatch, tmp_path):
     monkeypatch.setattr(adapters, "command", lambda tool: ["native-zap"])
     monkeypatch.setattr(adapters, "resolve", lambda *args: ["203.0.113.1"])
-    def execute(args, directory, cancel, **kwargs):
-        assert args[:2] == ["native-zap", "-cmd"]
-        assert "-dir" in args and "-autorun" in args
-        plan = json.loads((directory / "plan.yaml").read_text())
+    from moth import zap_runtime
+    def run_zap(cmd,url,directory,plan,cancel,progress=None):
+        assert cmd == ["native-zap"]
         assert plan["jobs"][-1]["parameters"]["reportDir"] == str(directory)
         (directory / "result.json").write_text(json.dumps({"site": [{"alerts": [{"name": "Policy absent", "riskcode": "1"}]}]}))
-        return ""
-    monkeypatch.setattr(adapters, "execute", execute)
+    monkeypatch.setattr(zap_runtime, "run", run_zap)
     monkeypatch.setattr(adapters.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("Docker must not be used")))
     found = adapters.run_tool("zap", "https://example.com/", tmp_path / "zap", threading.Event())
     assert found and found[0]["tool"] == "zap"
+
+
+@pytest.mark.parametrize('entry', ['bin/retire', './lib/cli.js'])
+def test_retire_uses_npm_declared_entry_point(monkeypatch, tmp_path, entry):
+    monkeypatch.setattr(tools, 'TOOLS', tmp_path)
+    monkeypatch.setattr(tools, 'node_command', lambda: ['node'])
+    monkeypatch.setattr(tools, 'executable_candidates', lambda *args: iter(()))
+    package = tmp_path / 'retire/node_modules/retire'
+    script = executable(package / entry)
+    (package / 'package.json').write_text(json.dumps({'name': 'retire', 'version': '6.1.0', 'bin': {'retire': entry}}))
+    (tmp_path / 'retire/ready.json').write_text('{"version":"6.1.0"}')
+    detected = tools.command('retire')
+    assert detected[0] == 'node'
+    assert Path(detected[1]) == script.resolve()
+    row = next(row for row in tools.catalog() if row['id'] == 'retire')
+    assert row['status'] == 'ready'
+    assert row['source'] == 'moth'
+    assert row['version'] == '6.1.0'
+    assert str(script.resolve()) in row['location']
+
+
+def test_retire_string_bin_and_unsafe_or_missing_entry(tmp_path):
+    package = tmp_path / 'retire'
+    package.mkdir()
+    (package / 'package.json').write_text(json.dumps({'bin': './cli.js'}))
+    assert tools.retire_entry(package) is None
+    script = executable(package / 'cli.js')
+    assert tools.retire_entry(package) == script.resolve()
+    executable(tmp_path / 'outside.js')
+    (package / 'package.json').write_text(json.dumps({'bin': {'retire': '../outside.js'}}))
+    assert tools.retire_entry(package) is None
+
+
+def test_ready_install_state_cannot_hide_missing_executable(monkeypatch):
+    monkeypatch.setattr(tools, 'STATE', {'retire': dict(status='ready', message='Installation completed.')})
+    monkeypatch.setattr(tools, 'command', lambda tool: None)
+    retire = next(row for row in tools.catalog() if row['id'] == 'retire')
+    assert retire['status'] == 'error'
+    assert 'could not be found' in retire['message']
+
+
+def test_global_npm_retire_uses_current_entry(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, 'TOOLS', tmp_path / 'managed')
+    monkeypatch.setattr(tools, 'node_command', lambda: ['node'])
+    monkeypatch.setattr(tools, 'executable_candidates', lambda *args: iter(()))
+    monkeypatch.setenv('APPDATA', str(tmp_path / 'global'))
+    package = tmp_path / 'global/npm/node_modules/retire'
+    script = executable(package / 'lib/cli.js')
+    (package / 'package.json').write_text(json.dumps({'name':'retire', 'bin':{'retire':'./lib/cli.js'}}))
+    assert tools.command('retire') == ['node', str(script.resolve())]
