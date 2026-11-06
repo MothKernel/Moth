@@ -20,7 +20,7 @@ bash start.sh
 
 The launcher creates a virtual environment and installs Qt if necessary. On Linux it can reuse a distribution-installed PySide6. No terminal is needed when launching the desktop shortcut.
 
-Create or refresh the shortcut from the program's **Desktop shortcut** button, or run:
+Create or refresh the desktop shortcut with:
 
 ```bash
 python install_desktop.py
@@ -30,7 +30,7 @@ python install_desktop.py
 
 The **Desktop build** GitHub Actions workflow produces a **Moth-Windows** artifact. Download and extract the complete ZIP, then double-click **Moth.exe**. Keep the `_internal` directory beside the executable. The packaged application includes Python and Qt for its own operation.
 
-Use **Desktop shortcut** inside Moth to create a Windows desktop shortcut.
+To create a desktop shortcut from a source checkout, run `python install_desktop.py`.
 
 To run the source checkout instead, install Python 3.11+ with its launcher, then double-click `start.bat`. The source launcher installs dependencies and opens the native window with `pythonw.exe`.
 
@@ -38,11 +38,16 @@ To run the source checkout instead, install Python 3.11+ with its launcher, then
 
 - Built-in HTTP(S) checks: certificate validation/expiry, HTTP use, security headers, cookie attributes and redirects.
 - Background assessments with progress, stop controls and explicit failure/partial states.
-- Findings list with plain-language explanations and a separate technical-details view.
+- Searchable findings with severity filters, specific plain-language explanations, visible evidence and a separate technical-details view.
+- Dedicated Errors and Checks & coverage tabs: execution failures include explanations, suggested actions and the original message; each selected tool shows its status and scope. Older saved observations receive the improved descriptions when opened.
 - Ten tool integrations, automatic detection of existing installations, optional selection and installation from the Tools page.
+- Automatic background update checks on startup, after installed tools change and every six hours while open; a manual **Check updates** button is available. Moth offers updates without installing them automatically. Managed tools use the installation queue; system tools show package-manager/official-installer guidance.
+- FIFO installation queue: select multiple tools and they install one at a time; failures do not block the next tool. The queue lasts for the current app session.
 - Local SQLite history, reopened directly inside the program.
 - Native save dialogs for standalone HTML and JSON reports. HTML is an export format, not the program interface.
 - English, Romanian and Russian interface and built-in finding explanations; language selection persists.
+- Light and dark themes from the header selector; the selected theme persists.
+- Color-coded tool status badges: green for installed, amber for missing/prerequisites, blue while installing and red for errors.
 - Desktop shortcuts and a single-instance lock.
 
 ## Optional tools
@@ -65,6 +70,12 @@ Moth checks the system PATH and common desktop/user installation locations, incl
 An existing native ZAP installation is used directly without Docker. On Arch, Moth uses `/usr/share/zaproxy/zap.sh` because the distribution launcher can discard command-line arguments. Docker Desktop/Engine is required only for the optional Docker-based ZAP installation. Nmap uses an official, separate installation due to redistribution restrictions. SSLyze and WAFW00F need a separate Python 3.11+ installation when using the packaged executable; the UI identifies that prerequisite. Installing system drivers, Docker or Python is not performed silently. Tools install under Moth's user data directory, without administrator privileges.
 
 Installations need internet access. Some tool databases and passive discovery sources also use external services. Missing platform builds, upstream API limits or runtime incompatibilities are shown as installation errors with a retry option. Not all external installers have been exercised on Windows yet.
+
+## Tool update checks
+
+Update checks contact official upstream metadata: [GitHub releases](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) for ProjectDiscovery and native ZAP, [PyPI JSON](https://docs.pypi.org/api/json/) for SSLyze/WAFW00F, the npm registry for Retire.js, Nmap's official download page, and the GHCR stable-image digest for Docker ZAP. The UI shows installed/latest versions, available updates, checking status and failures. Unknown versions and offline/rate-limited checks are not marked up to date. Checks are throttled in memory for the current session.
+
+Click **Update** to enqueue a managed tool upgrade. Python integrations use `pip install --upgrade` inside their isolated environments; binary downloads retain checksum verification; Docker upgrades repin the stable image digest. Scans using a queued/updating tool must wait. Tools installed outside Moth are not overwritten: update them through their original package manager or official installer, refresh detection, and check again. A distribution may backport fixes without matching the latest upstream version; the badge compares upstream versions only.
 
 ## Assessment scope and local data
 

@@ -77,6 +77,8 @@ def observation(tool, url, title, details, severity="info", explanation=None, re
     item = finding(title, url, details, severity, "information" if severity == "info" else "review", tool=tool)
     for lang in item["text"]:
         item["text"][lang] = [title, explanation or "Reported by the external tool. Review the evidence and the tool's coverage before drawing a conclusion.", recommendation or "Review this observation in its application context."]
+    from .presentation import describe
+    item["text"] = {lang: list(describe(item, lang)) for lang in ("en", "ro", "ru")}
     item["source_language"] = "en"
     return item
 

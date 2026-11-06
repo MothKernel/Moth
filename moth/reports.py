@@ -1,4 +1,5 @@
 import html
+from .presentation import describe, error_help
 
 
 def render(scan, language="en"):
@@ -11,11 +12,11 @@ def render(scan, language="en"):
     esc = lambda value: html.escape(str(value))
     cards = []
     for item in scan["findings"]:
-        title, description, remediation = item["text"].get(language, item["text"]["en"])
+        title, description, remediation = describe(item, language)
         cards.append(f"<article><small>{esc(item['severity'])} · {esc(item['tool'])} · {esc(item['kind'])}</small>"
                      f"<h2>{esc(title)}</h2><p>{esc(description)}</p><h3>{labels[3]}</h3><p>{esc(remediation)}</p>"
                      f"<h3>{labels[4]}</h3><pre>{esc(item['evidence'])}</pre><p>{esc(item['technical'])}</p></article>")
-    errors = "".join(f"<p>{esc(e['tool'])}: {esc(e['message'])}</p>" for e in scan["errors"])
+    errors = "".join(f"<article><h3>{esc(e['tool'])}: {esc(error_help(e['message'], language)[0])}</h3><p>{esc(error_help(e['message'], language)[1])}</p><p>{esc(error_help(e['message'], language)[2])}</p><pre>{esc(e['message'])}</pre></article>" for e in scan["errors"])
     return f"""<!doctype html><html lang="{language}"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Moth — {labels[0]}</title><style>

@@ -20,6 +20,9 @@ def start(target, selected, authorized, allow_private=False):
     selected = list(dict.fromkeys(selected))
     if len(selected) > 10 or any(not metadata(tool) for tool in selected):
         raise ValueError("Unknown tool selection.")
+    installed = catalog()
+    if any(tool["id"] in selected and tool["status"] in ("queued", "installing") for tool in installed):
+        raise ValueError("Wait for the selected tools to finish installing or updating before starting an assessment.")
     for tool in selected:
         if not command(tool):
             raise ValueError(f"{tool} is not installed. Open Tools first.")
@@ -27,7 +30,7 @@ def start(target, selected, authorized, allow_private=False):
                 status="queued", stage="queued", progress=0, findings=[], tools=selected,
                 allow_private=allow_private, errors=[], coverage={}, steps=[])
     scan["tool_versions"] = {tool["id"]: tool["version"] or "system installation"
-                             for tool in catalog() if tool["id"] in selected}
+                             for tool in installed if tool["id"] in selected}
     with LOCK:
         if ACTIVE:
             raise ValueError("A scan is already running. Stop it or wait for completion.")

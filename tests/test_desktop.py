@@ -115,3 +115,105 @@ def test_desktop_launcher_exits_after_smoke_test(tmp_path):
                             cwd=Path(__file__).resolve().parents[1], env=env,
                             capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+
+def test_update_offer_requires_click_and_uses_queue(window, monkeypatch):
+    from moth import tools, updates
+    rows = [dict(row) for row in window.tool_rows]
+    row = next(row for row in rows if row['id'] == 'httpx')
+    row.update(status='ready', source='moth', version='v1.0.0', update_status='available',
+               installed_version='v1.0.0', latest_version='v1.1.0')
+    monkeypatch.setattr(tools, 'catalog', lambda: rows)
+    calls = []
+    monkeypatch.setattr(tools, 'start_install', lambda tool, update=False: calls.append((tool, update)))
+    window.refresh_tools(force=True)
+    from PySide6.QtWidgets import QPushButton, QLabel
+    button = window.findChild(QPushButton, 'update_httpx')
+    assert button.text() == 'Update'
+    assert button.isEnabled()
+    assert any('v1.0.0' in label.text() and 'v1.1.0' in label.text() for label in window.findChildren(QLabel))
+    assert calls == []
+    button.click()
+    assert calls == [('httpx', True)]
+    checks = []
+    monkeypatch.setattr(updates, 'request_check', lambda data, force=False: checks.append(force))
+    window.check_updates(force=True)
+    assert checks == [True]
+
+
+def test_checkbox_rows_accept_mouse_and_keyboard_and_open_tools(window, qapp, monkeypatch):
+    from moth import tools
+    rows = [dict(row) for row in window.tool_rows]
+    for row in rows:
+        if row['id'] == 'httpx':
+            row['status'] = 'ready'
+    monkeypatch.setattr(tools, 'catalog', lambda: rows)
+    window.refresh_tools(force=True)
+    for theme in ('dark', 'light'):
+        window.theme_box.setCurrentIndex(window.theme_box.findData(theme))
+        qapp.processEvents()
+        for box in (window.authorized, window.lab, window.extra_toggle):
+            box.setChecked(False)
+            # The former native checkbox ignored clicks in this trailing area.
+            QTest.mouseClick(box, Qt.MouseButton.LeftButton, pos=QPoint(box.width()-8, box.height()//2))
+            assert box.isChecked()
+        assert window.options_scroll.isVisible()
+        check = window.tool_checks['httpx']
+        check.setChecked(False)
+        QTest.mouseClick(check, Qt.MouseButton.LeftButton)
+        assert check.isChecked()
+        check.setFocus()
+        QTest.keyClick(check, Qt.Key.Key_Space)
+        assert not check.isChecked()
+        QTest.mouseClick(window.extra_toggle, Qt.MouseButton.LeftButton)
+        assert not window.options_scroll.isVisible()
+
+
+def test_results_filters_evidence_error_help_and_coverage(window, qapp):
+    from moth.adapters import observation
+    from moth.findings import finding
+    import datetime
+    window.current = dict(id='presentation-test', target='http://127.0.0.1:3000/', created=datetime.datetime.now().isoformat(), status='partial', progress=100, stage='finished',
+        tools=['httpx', 'katana', 'sslyze'], steps=[dict(tool=tool, status='failed' if tool=='sslyze' else 'completed') for tool in ('moth','httpx','katana','sslyze')],
+        errors=[dict(tool='sslyze', message='Select an HTTPS URL for SSLyze.')], coverage={'http_status':200},
+        findings=[finding('http','http://127.0.0.1:3000/','URL scheme: http','medium'),
+                  observation('httpx','http://127.0.0.1:3000/','Web service observed','{"status_code":200,"tech":["Express"]}'),
+                  observation('katana','http://127.0.0.1:3000/','Pages discovered','http://127.0.0.1:3000/account'),
+                  observation('nmap','http://127.0.0.1:3000/','Web port observed','TCP 3000: open')])
+    window.render_scan()
+    qapp.processEvents()
+    assert window.result_tabs.tabText(1) == 'Errors (1)'
+    assert window.result_tabs.tabText(2) == 'Checks & coverage (4)'
+    assert window.review_errors.isVisible()
+    assert 'deselect SSLyze' in window.error_details.toPlainText()
+    assert 'Select an HTTPS URL for SSLyze.' in window.error_details.toPlainText()
+    assert window.check_list.topLevelItemCount()==4
+    assert 'Http status: 200' in window.coverage_details.toPlainText()
+    window.findings.setCurrentItem(window.findings.topLevelItem(1))
+    assert 'Express' in window.explanation.toPlainText()
+    assert 'What Moth observed' in window.explanation.toPlainText()
+    window.finding_search.setText('katana')
+    assert window.findings.topLevelItem(0).isHidden()
+    assert not window.findings.topLevelItem(2).isHidden()
+    assert 'http://127.0.0.1:3000/account' in window.explanation.toPlainText()
+    window.finding_search.setText('no-such-result')
+    assert window.result_title.text()=='No findings match these filters.'
+    assert not window.explanation.toPlainText()
+    window.finding_search.clear()
+    window.severity_filter.setCurrentIndex(window.severity_filter.findData('medium'))
+    assert not window.findings.topLevelItem(0).isHidden()
+    assert window.findings.topLevelItem(1).isHidden()
+    window.severity_filter.setCurrentIndex(0)
+    window.theme_box.setCurrentIndex(window.theme_box.findData('dark'))
+    # The fourth row used to get a white background from the native palette.
+    window.findings.setCurrentItem(window.findings.topLevelItem(0))
+    window.findings.clearFocus()
+    qapp.processEvents()
+    rect = window.findings.visualItemRect(window.findings.topLevelItem(3))
+    pixel = window.findings.viewport().grab().toImage().pixelColor(5, rect.center().y())
+    assert max(pixel.red(),pixel.green(),pixel.blue()) < 110
+    window.review_errors.click()
+    assert window.result_tabs.currentIndex()==1
+    window.language_box.setCurrentIndex(window.language_box.findData('ro'))
+    assert window.result_tabs.tabText(1)=='Erori (1)'
+    assert 'debifează SSLyze' in window.error_details.toPlainText()

@@ -1,21 +1,22 @@
 """Native Qt Widgets UI. Calls the Python engine directly; no web server or WebView."""
 import json
+import os
 import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QSettings, QLockFile, QUrl
-from PySide6.QtGui import QIcon, QDesktopServices
+from PySide6.QtGui import QIcon, QDesktopServices, QPalette, QColor
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QLineEdit, QCheckBox,
     QComboBox, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QStackedWidget,
     QGroupBox, QScrollArea, QSplitter, QTreeWidget, QTreeWidgetItem, QPlainTextEdit,
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog,
-    QMessageBox, QAbstractItemView,
+    QMessageBox, QAbstractItemView, QSizePolicy, QTabWidget,
 )
-from . import __version__, engine, storage, tools
+from . import __version__, engine, storage, tools, updates
 from .config import ROOT, DATA
 from .reports import render
-from .shortcuts import create_shortcuts
+from .presentation import describe, error_help, evidence_text, OBSERVATIONS
 
 RESOURCES = ROOT / "resources"
 TRANSLATIONS = json.loads((RESOURCES / "translations.json").read_text(encoding="utf-8"))
@@ -40,20 +41,86 @@ QPushButton:disabled { color: #9aa58f; background: #f0f2eb; }
 QPushButton#primary, QPushButton[navActive="true"] { background: #203c32; color: white; border: 1px solid #203c32; }
 QPushButton#primary:hover { background: #345844; }
 QPushButton#stop { color: #a44632; }
-QPushButton#shortcut { font-size: 11px; padding: 8px; }
 QLineEdit, QComboBox { background: white; border: 1px solid #ccd7c1; border-radius: 5px; padding: 9px; }
 QLineEdit:focus { border: 2px solid #8aa666; }
 QCheckBox { spacing: 9px; padding: 4px 0; font-weight: 400; }
+QCheckBox:disabled { color: #9aa58f; }
+QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #75836c; border-radius: 3px; background: white; }
+QCheckBox::indicator:hover { border: 1px solid #8aa666; background: #e5edda; }
+QCheckBox::indicator:checked { background: #93bd78; border: 1px solid #638a50; image: url("__CHECK_ICON__"); }
+QCheckBox::indicator:disabled { background: #f0f2eb; border-color: #d7dfce; }
+QCheckBox::indicator:checked:disabled { background: #9aa58f; }
 QProgressBar { border: 1px solid #dce3d4; background: white; border-radius: 4px; text-align: center; min-height: 20px; }
 QProgressBar::chunk { background: #bfdaa0; border-radius: 3px; }
 QTreeWidget, QTableWidget, QPlainTextEdit { background: white; border: 1px solid #dce3d4; border-radius: 5px; selection-background-color: #dcebbf; selection-color: #203c32; }
+QTreeWidget, QTableWidget { alternate-background-color: #edf2e6; }
+QTreeWidget::item:alternate, QTableWidget::item:alternate { background: #edf2e6; }
+QTreeWidget::item:selected, QTableWidget::item:selected { background: #dcebbf; color: #203c32; }
+QTreeWidget::item:selected:!active, QTableWidget::item:selected:!active { background: #dcebbf; color: #203c32; }
+QTreeWidget::item:focus { border: 0; }
+QTabWidget::pane { border: 0; }
+QTabBar::tab { background: #edf2e6; color: #203c32; padding: 9px 14px; border: 1px solid #dce3d4; }
+QTabBar::tab:selected { background: white; border-bottom: 2px solid #8aa666; }
 QHeaderView::section { background: #edf2e6; border: 0; border-bottom: 1px solid #dce3d4; padding: 9px; }
 QTreeWidget::item, QTableWidget::item { padding: 7px; }
 QScrollArea { border: 0; background: transparent; }
 QScrollArea > QWidget > QWidget { background: transparent; }
+QScrollBar:vertical { background: #edf2e6; width: 12px; margin: 0; }
+QScrollBar:horizontal { background: #edf2e6; height: 12px; margin: 0; }
+QScrollBar::handle:vertical { background: #9aa58f; min-height: 28px; border-radius: 5px; }
+QScrollBar::handle:horizontal { background: #9aa58f; min-width: 28px; border-radius: 5px; }
+QScrollBar::handle:hover { background: #8aa666; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QSplitter::handle { background: #e2e8d9; border-radius: 2px; }
 QStatusBar { background: #eaf0e3; color: #718267; }
+QComboBox QAbstractItemView { background: white; color: #203c32; selection-background-color: #dcebbf; selection-color: #203c32; }
+QLabel#toolStatus { padding: 5px 10px; border-radius: 5px; font-weight: 600; }
+QLabel#toolStatus[state="ready"] { color: #166534; background: #dcfce7; }
+QLabel#toolStatus[state="missing"], QLabel#toolStatus[state="manual"], QLabel#toolStatus[state="prerequisite"] { color: #92400e; background: #fef3c7; }
+QLabel#toolStatus[state="installing"], QLabel#toolStatus[state="queued"] { color: #1e40af; background: #dbeafe; }
+QLabel#toolStatus[state="available"] { color: #92400e; background: #fef3c7; }
+QLabel#toolStatus[state="error"] { color: #991b1b; background: #fee2e2; }
 """
+
+STYLE = STYLE.replace("__CHECK_ICON__", (RESOURCES / "check.svg").as_posix())
+
+
+DARK_COLORS = {
+    "#203c32": "#e2eae5", "#f5f5ef": "#141b18", "#eaf0e3": "#1b2620",
+    "#dbe2d3": "#33443a", "#75836c": "#a5b7aa", "#fff0e8": "#402a24",
+    "#914b37": "#ffb39a", "white": "#202d26", "#dce3d4": "#3c5043",
+    "#f7f8f2": "#28382e", "#d7dfce": "#4b6252", "#e5edda": "#354c3d",
+    "#9aa58f": "#8a9b90", "#f0f2eb": "#253129", "#345844": "#a6cf8b",
+    "#a44632": "#ffad98", "#ccd7c1": "#4b6252", "#8aa666": "#a6cf8b",
+    "#bfdaa0": "#638a50", "#dcebbf": "#415f3e", "#edf2e6": "#28382e",
+    "#e2e8d9": "#33443a", "#718267": "#a5b7aa",
+    "#166534": "#a7f3b8", "#dcfce7": "#1c4930", "#92400e": "#fde095",
+    "#fef3c7": "#4b391c", "#1e40af": "#bfdbfe", "#dbeafe": "#243d62",
+    "#991b1b": "#fecaca", "#fee2e2": "#592c30",
+}
+
+
+def theme_style(theme):
+    if theme == "light":
+        return STYLE
+    # Replace all colors in one pass so replacements cannot replace each other.
+    import re
+    style = re.sub(r"#[0-9a-f]{6}\b|\bwhite\b", lambda m: DARK_COLORS.get(m[0], m[0]), STYLE)
+    return style + """
+QPushButton#primary, QPushButton[navActive="true"] { background: #93bd78; color: #142219; border-color: #93bd78; }
+QPushButton#primary:hover { background: #a6cf8b; }
+"""
+
+
+class OptionCheckBox(QCheckBox):
+    """Use the entire option row as the click target, including trailing space."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def hitButton(self, position):
+        return self.rect().contains(position)
 
 
 def text_label(text="", name=None):
@@ -88,10 +155,14 @@ class MainWindow(QMainWindow):
         self.language = self.settings.value("language", "en")
         if self.language not in TRANSLATIONS:
             self.language = "en"
+        self.theme = self.settings.value("theme", "light")
+        if self.theme not in ("light", "dark"):
+            self.theme = "light"
         self.current = None
         self._last_scan = None
         self._last_tools = None
         self._last_history = None
+        self._rendered_scan_id = None
         self._pending_close = False
         self._closing_install = False
         self._translated = []
@@ -101,7 +172,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(str(RESOURCES / "moth.png")))
         self.setMinimumSize(1000, 720)
         self.resize(1280, 900)
-        self.setStyleSheet(STYLE)
+        self.apply_theme()
         self._build()
         self.translate()
         self.refresh_tools(force=True)
@@ -109,6 +180,11 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(500)
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self.check_updates)
+        if not os.environ.get("MOTH_DISABLE_UPDATE_CHECKS") and "--smoke-test" not in sys.argv:
+            QTimer.singleShot(1500, self, self.check_updates)
+            self.update_timer.start(60000)
 
     def tr_text(self, key):
         return TRANSLATIONS[self.language].get(key, TRANSLATIONS["en"].get(key, key))
@@ -159,9 +235,6 @@ class MainWindow(QMainWindow):
             self.nav.append(button)
             side_layout.addWidget(button)
         side_layout.addStretch()
-        side_layout.addWidget(self.label("desktop_local", "muted"))
-        side_layout.addWidget(self.button("create_shortcut", self.create_shortcut, "shortcut"))
-        side_layout.addSpacing(10)
         side_layout.addWidget(text_label(f"MOTH / {__version__}", "muted"))
         row.addWidget(side)
         content = QWidget()
@@ -171,6 +244,14 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         self.heading = text_label(name="heading")
         header.addWidget(self.heading, 1)
+        header.addWidget(self.label("theme"))
+        self.theme_box = QComboBox()
+        self.theme_box.setObjectName("theme")
+        self.theme_box.addItem(self.tr_text("theme_light"), "light")
+        self.theme_box.addItem(self.tr_text("theme_dark"), "dark")
+        self.theme_box.setCurrentIndex(self.theme_box.findData(self.theme))
+        self.theme_box.currentIndexChanged.connect(self.change_theme)
+        header.addWidget(self.theme_box)
         self.language_box = QComboBox()
         self.language_box.setObjectName("language")
         for label, code in (("English", "en"), ("Română", "ro"), ("Русский", "ru")):
@@ -209,20 +290,20 @@ class MainWindow(QMainWindow):
         self.target.returnPressed.connect(self.start_scan)
         form_layout.addWidget(self.target)
         form_layout.addWidget(self.label("scope_note", "muted"))
-        self.authorized = self.bind(QCheckBox(), "authorized")
+        self.authorized = self.bind(OptionCheckBox(), "authorized")
         self.authorized.setObjectName("authorized")
-        self.lab = self.bind(QCheckBox(), "lab")
+        self.lab = self.bind(OptionCheckBox(), "lab")
         self.lab.setObjectName("lab")
         form_layout.addWidget(self.authorized)
         form_layout.addWidget(self.lab)
-        self.extra_toggle = self.bind(QCheckBox(), "extra_tools")
+        self.extra_toggle = self.bind(OptionCheckBox(), "extra_tools")
         self.extra_toggle.setObjectName("extraTools")
         form_layout.addWidget(self.extra_toggle)
         options = QWidget()
         self.options_layout = QGridLayout(options)
         self.options_layout.setContentsMargins(0, 0, 0, 0)
         for index, tool in enumerate(tools.REGISTRY):
-            check = QCheckBox(tool["name"])
+            check = OptionCheckBox(tool["name"])
             check.setObjectName("tool_" + tool["id"])
             self.tool_checks[tool["id"]] = check
             self.options_layout.addWidget(check, index // 2, index % 2)
@@ -273,6 +354,7 @@ class MainWindow(QMainWindow):
         self.findings = QTreeWidget()
         self.findings.setObjectName("findings")
         self.findings.setRootIsDecorated(False)
+        self.findings.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.findings.setAlternatingRowColors(True)
         self.findings.setColumnCount(3)
         self.findings.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -290,7 +372,7 @@ class MainWindow(QMainWindow):
         self.explanation.setObjectName("explanation")
         self.explanation.setReadOnly(True)
         detail_layout.addWidget(self.explanation, 1)
-        self.technical_toggle = self.bind(QCheckBox(), "technical")
+        self.technical_toggle = self.bind(OptionCheckBox(), "technical")
         detail_layout.addWidget(self.technical_toggle)
         self.technical = QPlainTextEdit()
         self.technical.setObjectName("technical")
@@ -300,14 +382,63 @@ class MainWindow(QMainWindow):
         detail_layout.addWidget(self.technical, 1)
         result_split.addWidget(details)
         result_split.setSizes([500, 500])
-        results_layout.addWidget(result_split, 1)
-        self.errors = QPlainTextEdit()
-        self.errors.setReadOnly(True)
-        self.errors.setMaximumHeight(80)
-        self.errors.hide()
-        results_layout.addWidget(self.errors)
+        self.result_tabs = QTabWidget()
+        self.result_tabs.setObjectName("resultTabs")
+        findings_page = QWidget()
+        findings_layout = QVBoxLayout(findings_page)
+        findings_layout.setContentsMargins(0, 10, 0, 0)
+        filters = QHBoxLayout()
+        self.finding_search = QLineEdit()
+        self.finding_search.setObjectName("findingSearch")
+        self.finding_search.setClearButtonEnabled(True)
+        self.finding_search.textChanged.connect(self.filter_findings)
+        filters.addWidget(self.finding_search, 1)
+        self.severity_filter = QComboBox()
+        for key in ("all_severities", "critical", "high", "medium", "low", "info"):
+            self.severity_filter.addItem(self.tr_text(key), key)
+        self.severity_filter.currentIndexChanged.connect(self.filter_findings)
+        filters.addWidget(self.severity_filter)
+        findings_layout.addLayout(filters)
+        findings_layout.addWidget(result_split, 1)
+        self.result_tabs.addTab(findings_page, "")
+        error_page = QWidget()
+        error_layout = QVBoxLayout(error_page)
+        self.error_list = QTreeWidget()
+        self.error_list.setObjectName("errorList")
+        self.error_list.setRootIsDecorated(False)
+        self.error_list.setColumnCount(2)
+        self.error_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.error_list.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.error_list.currentItemChanged.connect(self.select_error)
+        self.error_details = QPlainTextEdit()
+        self.error_details.setReadOnly(True)
+        self.error_details.setObjectName("errorDetails")
+        error_split = QSplitter(Qt.Orientation.Vertical)
+        error_split.addWidget(self.error_list)
+        error_split.addWidget(self.error_details)
+        error_split.setSizes([150, 300])
+        error_layout.addWidget(error_split)
+        self.result_tabs.addTab(error_page, "")
+        checks_page = QWidget()
+        checks_layout = QVBoxLayout(checks_page)
+        self.check_list = QTreeWidget()
+        self.check_list.setObjectName("checkList")
+        self.check_list.setRootIsDecorated(False)
+        self.check_list.setColumnCount(3)
+        self.check_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.check_list.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        checks_layout.addWidget(self.check_list)
+        self.coverage_details = QPlainTextEdit()
+        self.coverage_details.setReadOnly(True)
+        checks_layout.addWidget(self.coverage_details)
+        self.result_tabs.addTab(checks_page, "")
+        self.review_errors = self.button("review_errors", lambda: self.result_tabs.setCurrentIndex(1))
+        self.review_errors.setObjectName("stop")
+        self.review_errors.hide()
+        results_layout.addWidget(self.review_errors)
+        results_layout.addWidget(self.result_tabs, 1)
         self.scan_split.addWidget(lower)
-        self.scan_split.setSizes([390, 390])
+        self.scan_split.setSizes([310, 550])
         layout.addWidget(self.scan_split)
         return page
 
@@ -317,6 +448,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
         row.addWidget(self.label("tools_intro", "muted"), 1)
+        row.addWidget(self.button("check_updates", lambda: self.check_updates(force=True)))
         row.addWidget(self.button("refresh", self.refresh_prerequisites))
         layout.addLayout(row)
         holder = QWidget()
@@ -353,33 +485,58 @@ class MainWindow(QMainWindow):
         if index == 2:
             self.refresh_history(force=True)
 
+    def apply_theme(self):
+        self.setStyleSheet(theme_style(self.theme))
+        palette = QPalette()
+        dark = self.theme == "dark"
+        for role, light, night in (
+            (QPalette.ColorRole.Window, "#f5f5ef", "#141b18"),
+            (QPalette.ColorRole.WindowText, "#203c32", "#e2eae5"),
+            (QPalette.ColorRole.Base, "#ffffff", "#202d26"),
+            (QPalette.ColorRole.AlternateBase, "#edf2e6", "#28382e"),
+            (QPalette.ColorRole.Text, "#203c32", "#e2eae5"),
+            (QPalette.ColorRole.Button, "#f7f8f2", "#28382e"),
+            (QPalette.ColorRole.ButtonText, "#203c32", "#e2eae5"),
+            (QPalette.ColorRole.Highlight, "#dcebbf", "#415f3e"),
+            (QPalette.ColorRole.HighlightedText, "#203c32", "#e2eae5"),
+            (QPalette.ColorRole.ToolTipBase, "#ffffff", "#28382e"),
+            (QPalette.ColorRole.ToolTipText, "#203c32", "#e2eae5"),
+        ):
+            palette.setColor(role, QColor(night if dark else light))
+        self.setPalette(palette)
+
+    def change_theme(self, index):
+        self.theme = self.theme_box.itemData(index)
+        self.settings.setValue("theme", self.theme)
+        self.apply_theme()
+
     def change_language(self, index):
         self.language = self.language_box.itemData(index)
         self.settings.setValue("language", self.language)
         self.translate()
 
     def translate(self):
+        self.theme_box.setItemText(0, self.tr_text("theme_light"))
+        self.theme_box.setItemText(1, self.tr_text("theme_dark"))
         for widget, key, setter in self._translated:
             getattr(widget, setter)(self.tr_text(key))
         self.heading.setText(self.tr_text(("assessment", "tools", "history")[self.pages.currentIndex()]))
+        self.finding_search.setPlaceholderText(self.tr_text("search_findings"))
+        for index in range(self.severity_filter.count()):
+            self.severity_filter.setItemText(index, self.tr_text(self.severity_filter.itemData(index)))
+        self.error_list.setHeaderLabels([self.tr_text("tools"), self.tr_text("error_reason")])
+        self.check_list.setHeaderLabels([self.tr_text("tools"), self.tr_text("status"), self.tr_text("check_scope")])
+        self.update_result_tabs()
         self.findings.setHeaderLabels([self.tr_text("severity"), self.tr_text("results"), self.tr_text("tools")])
         self.history.setHorizontalHeaderLabels([self.tr_text("website"), self.tr_text("created"), self.tr_text("status"), self.tr_text("results")])
         self._last_scan = None
         self.refresh_tools(force=True)
         self.refresh_history(force=True)
         self.render_scan()
-        self.statusBar().showMessage(self.tr_text("desktop_local") + f" · Moth {__version__}")
 
     def show_notice(self, message):
         self.notice.setText(message)
         self.notice.setVisible(bool(message))
-
-    def create_shortcut(self):
-        try:
-            path = create_shortcuts()
-            self.statusBar().showMessage(self.tr_text("shortcut_created") + ": " + path, 15000)
-        except Exception as exc:
-            self.show_notice(str(exc))
 
     def running(self):
         return self.current and self.current["status"] not in FINISHED
@@ -437,17 +594,25 @@ class MainWindow(QMainWindow):
         self.progress.setValue(scan["progress"])
         self.stage.setText(scan["target"] + "\n" + self.tr_text(scan["status"]) + " · " + scan["stage"])
         self.step_text.setPlainText("\n".join(step["tool"] + " — " + self.tr_text(step["status"]) for step in scan["steps"]))
-        self.summary.setText(f"{len(scan['findings'])} {self.tr_text('observations')} · {self.tr_text(scan['status'])}")
-        self.errors.setPlainText("\n".join(e["tool"] + ": " + e["message"] for e in scan["errors"]))
-        self.errors.setVisible(bool(scan["errors"]))
+        completed = sum(step["status"] == "completed" for step in scan["steps"])
+        self.summary.setText(self.tr_text("assessment_summary").format(findings=len(scan["findings"]), errors=len(scan["errors"]), completed=completed, total=len(scan.get("tools", []))+1))
+        self.render_diagnostics()
+        self.review_errors.setVisible(bool(scan["errors"]))
+        new_scan = self._rendered_scan_id != scan["id"]
+        self._rendered_scan_id = scan["id"]
+        if new_scan:
+            self.result_tabs.setCurrentIndex(1 if scan["errors"] and not scan["findings"] else 0)
         selected = self.findings.currentItem()
         selected_id = selected.data(0, Qt.ItemDataRole.UserRole) if selected else None
         self.findings.clear()
         selected_item = None
         for finding in scan["findings"]:
-            title = finding["text"].get(self.language, finding["text"]["en"])[0]
+            title = describe(finding, self.language)[0]
             item = QTreeWidgetItem([self.tr_text(finding["severity"]), title, finding["tool"]])
             item.setData(0, Qt.ItemDataRole.UserRole, finding["id"])
+            for column in range(3):
+                item.setToolTip(column, title + "\n" + finding["tool"])
+
             self.findings.addTopLevelItem(item)
             if finding["id"] == selected_id:
                 selected_item = item
@@ -455,8 +620,9 @@ class MainWindow(QMainWindow):
             self.findings.setCurrentItem(selected_item or self.findings.topLevelItem(0))
         else:
             self.result_title.setText(self.tr_text("results"))
-            self.explanation.setPlainText(self.tr_text("running_description") if running else self.tr_text("no_findings"))
+            self.explanation.setPlainText(self.tr_text("running_description") if running else self.tr_text("no_completed_results") if scan["errors"] else self.tr_text("no_findings"))
             self.technical.clear()
+        self.filter_findings()
 
     def select_finding(self, item, previous=None):
         if not item or not self.current:
@@ -465,13 +631,77 @@ class MainWindow(QMainWindow):
         finding = next((f for f in self.current["findings"] if f["id"] == identifier), None)
         if finding is None:
             return
-        title, explanation, recommendation = finding["text"].get(self.language, finding["text"]["en"])
+        title, explanation, recommendation = describe(finding, self.language)
         self.result_title.setText(title)
-        body = explanation + "\n\n" + self.tr_text("recommendation") + "\n" + recommendation
-        if finding.get("source_language") == "en" and self.language != "en":
-            body += "\n\n" + self.tr_text("english_source")
+        body = self.tr_text("finding_metadata").format(severity=self.tr_text(finding["severity"]), tool=finding["tool"], target=finding["target"])
+        body += "\n\n" + self.tr_text("what_it_means") + "\n" + explanation
+        body += "\n\n" + self.tr_text("observed_evidence") + "\n" + (evidence_text(finding.get("evidence", "")) or self.tr_text("no_evidence"))
+        body += "\n\n" + self.tr_text("recommendation") + "\n" + recommendation
+        if finding.get("source_language") == "en" and self.language != "en" and finding.get("code") not in OBSERVATIONS:
+            original = finding["text"]["en"]
+            body += "\n\n" + self.tr_text("english_source") + "\n" + "\n\n".join(original)
         self.explanation.setPlainText(body)
         self.technical.setPlainText("\n\n".join([finding["target"], finding["tool"] + " · " + self.tr_text(finding["confidence"]), finding["evidence"], finding.get("technical", "")]))
+
+    def filter_findings(self, *args):
+        query = self.finding_search.text().strip().casefold()
+        severity = self.severity_filter.currentData()
+        records = {f["id"]: f for f in self.current["findings"]} if self.current else {}
+        for index in range(self.findings.topLevelItemCount()):
+            item = self.findings.topLevelItem(index)
+            record = records.get(item.data(0, Qt.ItemDataRole.UserRole), {})
+            text = " ".join(item.text(column) for column in range(3)) + " " + record.get("evidence", "")
+            item.setHidden((bool(query) and query not in text.casefold()) or (severity != "all_severities" and record.get("severity") != severity))
+        selected = self.findings.currentItem()
+        if selected and selected.isHidden():
+            visible = next((self.findings.topLevelItem(i) for i in range(self.findings.topLevelItemCount()) if not self.findings.topLevelItem(i).isHidden()), None)
+            self.findings.setCurrentItem(visible)
+            if visible is None:
+                self.result_title.setText(self.tr_text("no_filter_matches"))
+                self.explanation.clear()
+                self.technical.clear()
+        elif selected is None:
+            visible = next((self.findings.topLevelItem(i) for i in range(self.findings.topLevelItemCount()) if not self.findings.topLevelItem(i).isHidden()), None)
+            if visible:
+                self.findings.setCurrentItem(visible)
+
+    def update_result_tabs(self):
+        scan = self.current or {}
+        self.result_tabs.setTabText(0, self.tr_text("results") + f" ({len(scan.get('findings', []))})")
+        self.result_tabs.setTabText(1, self.tr_text("errors_tab") + f" ({len(scan.get('errors', []))})")
+        self.result_tabs.setTabText(2, self.tr_text("checks_tab") + f" ({len(scan.get('tools', []))+1 if scan else 0})")
+
+    def render_diagnostics(self):
+        self.update_result_tabs()
+        selected = self.error_list.currentItem()
+        previous = selected.data(0, Qt.ItemDataRole.UserRole) if selected else 0
+        self.error_list.clear()
+        for index, error in enumerate(self.current["errors"]):
+            title = error_help(error["message"], self.language)[0]
+            item = QTreeWidgetItem([error["tool"], title])
+            item.setToolTip(1, title)
+            item.setData(0, Qt.ItemDataRole.UserRole, index)
+            self.error_list.addTopLevelItem(item)
+        if self.error_list.topLevelItemCount():
+            self.error_list.setCurrentItem(self.error_list.topLevelItem(min(previous or 0, self.error_list.topLevelItemCount()-1)))
+        else:
+            self.error_details.setPlainText(self.tr_text("no_errors"))
+        self.check_list.clear()
+        steps = {step["tool"]: step["status"] for step in self.current["steps"]}
+        for tool in ["moth"] + self.current.get("tools", []):
+            scope = self.tr_text("basic_scope" if tool == "moth" else "tool_" + tool)
+            status = steps.get(tool, "not_run")
+            self.check_list.addTopLevelItem(QTreeWidgetItem([tool, self.tr_text(status), scope]))
+        coverage = evidence_text(json.dumps(self.current.get("coverage", {}), ensure_ascii=False))
+        self.coverage_details.setPlainText(self.tr_text("coverage_details") + "\n\n" + (coverage or self.tr_text("no_coverage")) + "\n\n" + self.tr_text("coverage_note"))
+
+    def select_error(self, item, previous=None):
+        if item is None or self.current is None:
+            return
+        index = item.data(0, Qt.ItemDataRole.UserRole)
+        error = self.current["errors"][index]
+        title, explanation, action = error_help(error["message"], self.language)
+        self.error_details.setPlainText(error["tool"] + " · " + title + "\n\n" + self.tr_text("what_it_means") + "\n" + explanation + "\n\n" + self.tr_text("recommendation") + "\n" + action + "\n\n" + self.tr_text("original_error") + "\n" + error["message"])
 
     def refresh_tools(self, force=False):
         rows = tools.catalog()
@@ -482,9 +712,14 @@ class MainWindow(QMainWindow):
         self.tool_rows = rows
         clear_layout(self.tools_layout)
         for index, row in enumerate(rows):
-            card = QGroupBox(row["name"] + " · " + self.tr_text(row["status"]))
+            card = QGroupBox(row["name"])
             card.setMinimumWidth(280)
             content = QVBoxLayout(card)
+            available = row.get("update_status") == "available" and row["status"] == "ready"
+            badge = text_label(self.tr_text("update_available" if available else row["status"]), "toolStatus")
+            badge.setProperty("state", "available" if available else row["status"])
+            badge.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            content.addWidget(badge, 0, Qt.AlignmentFlag.AlignLeft)
             content.addWidget(text_label(self.tr_text("tool_" + row["id"])))
             if row.get("source"):
                 content.addWidget(text_label(self.tr_text("source_" + row["source"]), "muted"))
@@ -492,7 +727,8 @@ class MainWindow(QMainWindow):
                 location = text_label(row["location"], "muted")
                 location.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
                 content.addWidget(location)
-            message = row["message"]
+            message = (self.tr_text("queue_position").format(position=row["queue_position"])
+                       if row["status"] == "queued" else row["message"])
             if row["status"] == "prerequisite" and row["id"] == "zap":
                 message = self.tr_text("zap_requirement")
             if row["id"] == "nmap" and row["status"] != "ready":
@@ -501,12 +737,35 @@ class MainWindow(QMainWindow):
                 content.addWidget(text_label(message[-900:], "muted"))
             if row.get("version"):
                 content.addWidget(text_label(row["version"][:70], "muted"))
+            update_status = row.get("update_status")
+            if row["status"] == "ready" and update_status:
+                if update_status == "available":
+                    current = row.get("installed_version", "")
+                    latest = row.get("latest_version", "")
+                    if row.get("source") == "docker":
+                        current, latest = current.split("@")[-1][:19], latest.split("@")[-1][:19]
+                    content.addWidget(text_label(self.tr_text("update_versions").format(current=current, latest=latest)))
+                    if row.get("source") == "system":
+                        content.addWidget(text_label(self.tr_text("system_update_note"), "muted"))
+                elif update_status == "current":
+                    content.addWidget(text_label(self.tr_text("up_to_date") + " · " + row.get("installed_version", "")[:70], "muted"))
+                else:
+                    label = text_label(self.tr_text("updates_checking" if update_status == "checking" else "updates_error"), "muted")
+                    label.setToolTip(row.get("update_error", ""))
+                    content.addWidget(label)
             buttons = QHBoxLayout()
-            if row["id"] != "nmap":
-                key = "ready" if row["status"] == "ready" else "installing" if row["status"] == "installing" else "retry" if row["status"] == "error" else "install"
+            if available:
+                managed = row.get("source") in ("moth", "docker")
+                update_button = QPushButton(self.tr_text("update" if managed else "update_instructions"))
+                update_button.setObjectName("update_" + row["id"])
+                update_button.setEnabled(not self.running())
+                update_button.clicked.connect(lambda checked=False, tool=row["id"], managed=managed: self.update_tool(tool, managed))
+                buttons.addWidget(update_button)
+            elif row["id"] != "nmap":
+                key = "ready" if row["status"] == "ready" else "installing" if row["status"] == "installing" else "queued" if row["status"] == "queued" else "retry" if row["status"] == "error" else "install"
                 install = QPushButton(self.tr_text(key))
                 install.setObjectName("install_" + row["id"])
-                install.setEnabled(row["status"] not in ("ready", "installing", "prerequisite") and not self.running())
+                install.setEnabled(row["status"] not in ("ready", "installing", "queued", "prerequisite") and not self.running())
                 install.clicked.connect(lambda checked=False, tool=row["id"]: self.install_tool(tool))
                 buttons.addWidget(install)
             official = QPushButton(self.tr_text("upstream"))
@@ -523,6 +782,23 @@ class MainWindow(QMainWindow):
     def install_tool(self, identifier):
         try:
             tools.start_install(identifier)
+            self.show_notice("")
+            self.refresh_tools(force=True)
+        except Exception as exc:
+            self.show_notice(str(exc))
+
+    def check_updates(self, force=False):
+        updates.request_check(tools.catalog(), force=force)
+        self.refresh_tools(force=True)
+
+    def update_tool(self, identifier, managed=True):
+        if not managed:
+            QMessageBox.information(self, self.tr_text("update_instructions"), self.tr_text("system_update_note"))
+            return
+        if self.running():
+            return
+        try:
+            tools.start_install(identifier, update=True)
             self.show_notice("")
             self.refresh_tools(force=True)
         except Exception as exc:
@@ -598,13 +874,14 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         with tools.LOCK:
-            installing = any(row.get("status") == "installing" for row in tools.STATE.values())
+            installing = any(row.get("status") in ("installing", "queued") for row in tools.STATE.values())
         if installing and not self._closing_install:
             if QMessageBox.question(self, "Moth", self.tr_text("install_close")) != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
             self._closing_install = True
         self.timer.stop()
+        self.update_timer.stop()
         self.settings.sync()
         event.accept()
 

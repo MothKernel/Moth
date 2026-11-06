@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.request
 import zipfile
+from collections import deque
 from functools import lru_cache
 from pathlib import Path
 from .config import TOOLS
@@ -32,6 +33,8 @@ REGISTRY = [
 ]
 STATE = {}
 LOCK = threading.Lock()
+INSTALL_QUEUE = deque()
+INSTALL_WORKER = None
 EXE = ".exe" if os.name == "nt" else ""
 
 
@@ -188,16 +191,28 @@ def command(tool):
         return [next(p for p in candidates if p and Path(p).is_file())] if any(p and Path(p).is_file() for p in candidates) else None
 
 
+def installation_source(tool, cmd):
+    if tool == "zap" and is_docker_zap(cmd):
+        return "docker"
+    if cmd:
+        folder = (TOOLS / tool).resolve()
+        if any(Path(part).absolute().is_relative_to(folder) or Path(part).resolve().is_relative_to(folder)
+               for part in cmd if not part.startswith("-")):
+            return "moth"
+        return "system"
+    return ""
+
+
 def catalog():
     with LOCK:
         state = {k: dict(v) for k, v in STATE.items()}
+        positions = {tool: index for index, tool in enumerate(INSTALL_QUEUE, 1)}
     rows = []
     for tool in REGISTRY:
         identifier = tool["id"]
         cmd = command(identifier)
         ready = bool(cmd)
-        source = "docker" if identifier == "zap" and is_docker_zap(cmd) else (
-            "moth" if cmd and Path(cmd[0]).resolve().is_relative_to(TOOLS.resolve()) else "system" if cmd else "")
+        source = installation_source(identifier, cmd)
         marker = TOOLS / identifier / "ready.json"
         version = ""
         if marker.exists() and source in ("moth", "docker"):
@@ -209,8 +224,9 @@ def catalog():
         row = dict(tool, status="ready" if ready else "missing", version=version, message="", automatic=identifier != "nmap",
                    source=source, location=" ".join(cmd) if cmd else "")
         row.update(state.get(identifier, {}))
-        if ready and row["status"] != "installing":
-            row.update(status="ready", message="")
+        row["queue_position"] = positions.get(identifier)
+        if ready and row["status"] not in ("installing", "queued"):
+            row.update(status="ready", message=row["message"] if row.get("update_failed") else "")
         if identifier == "zap" and not ready and not shutil.which("docker"):
             row.update(status="prerequisite", message="Install and start Docker Desktop/Engine first.")
         if identifier == "nmap" and not ready:
@@ -222,6 +238,12 @@ def catalog():
             if not catalog.python_available:
                 row.update(status="prerequisite", message="Install Python 3.11+ to enable this optional Python-based scanner.", url="https://www.python.org/downloads/")
         rows.append(row)
+    from . import updates
+    checked = updates.snapshot()
+    for row in rows:
+        result = checked.get(row["id"], {})
+        if result.get("update_location") == row["location"] and result.get("update_version") == row["version"]:
+            row.update(result)
     return rows
 
 
@@ -377,7 +399,7 @@ def install(tool):
                 if runtime is None:
                     raise ValueError("Install Python 3.11+ to enable this optional scanner.")
                 run_install(runtime + ["-m", "venv", str(env)])
-            run_install([str(python_bin(env)), "-m", "pip", "install", "--disable-pip-version-check", tool])
+            run_install([str(python_bin(env)), "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", tool])
             version = subprocess.check_output([str(python_bin(env)), "-c", "import importlib.metadata, sys; print(importlib.metadata.version(sys.argv[1]))", tool], timeout=20, text=True, env=external_environment()).strip()
             (folder / "ready.json").write_text(json.dumps({"source": "PyPI", "package": tool, "version": version}))
         elif tool == "retire":
@@ -411,17 +433,58 @@ def install(tool):
             STATE[tool] = dict(status="error", message=str(exc)[-2500:])
 
 
-def start_install(tool):
+def _process_install_queue():
+    global INSTALL_WORKER
+    while True:
+        with LOCK:
+            if not INSTALL_QUEUE:
+                INSTALL_WORKER = None
+                return
+            tool = INSTALL_QUEUE.popleft()
+            updating = STATE[tool].get("operation") == "update"
+            STATE[tool] = dict(status="installing", operation="update" if updating else "install", message="Downloading and preparing dependencies…")
+        try:
+            # Detection may change while a tool waits in the queue.
+            if command(tool) and not updating:
+                with LOCK:
+                    STATE[tool] = dict(status="ready", message="")
+            else:
+                install(tool)
+            with LOCK:
+                failed = STATE[tool]["status"] == "error"
+                if failed and updating:
+                    STATE[tool]["update_failed"] = True
+            if not failed:
+                from . import updates
+                updates.invalidate(tool)
+        except Exception as exc:
+            # An unexpected failure must not prevent later installations.
+            with LOCK:
+                STATE[tool] = dict(status="error", update_failed=updating, message=str(exc)[-2500:])
+
+
+def start_install(tool, update=False):
+    global INSTALL_WORKER
     if not metadata(tool):
         raise ValueError("Unknown tool.")
     if tool == "nmap":
         raise ValueError("Install Nmap from its official website, then refresh detection.")
-    if command(tool):
+    cmd = command(tool)
+    if cmd and not update:
         return
+    if update and (not cmd or installation_source(tool, cmd) not in ("moth", "docker")):
+        raise ValueError("Update this installation through its package manager or official installer.")
     with LOCK:
-        if STATE.get(tool, {}).get("status") == "installing":
+        if STATE.get(tool, {}).get("status") in ("installing", "queued"):
             return
-        if any(v.get("status") == "installing" for v in STATE.values()):
-            raise ValueError("Another installation is running. Wait for it to finish.")
-        STATE[tool] = dict(status="installing", message="Downloading and preparing dependencies…")
-    threading.Thread(target=install, args=(tool,), daemon=True).start()
+        INSTALL_QUEUE.append(tool)
+        STATE[tool] = dict(status="queued", operation="update" if update else "install", message="")
+        if INSTALL_WORKER is None:
+            INSTALL_WORKER = threading.Thread(target=_process_install_queue, daemon=True)
+            try:
+                INSTALL_WORKER.start()
+            except Exception:
+                INSTALL_WORKER = None
+                INSTALL_QUEUE.remove(tool)
+                STATE.pop(tool, None)
+                raise

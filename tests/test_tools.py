@@ -92,3 +92,89 @@ def test_nmap_adapter(tmp_path):
 def test_empty_probe_is_a_failure(tmp_path):
     with pytest.raises(ValueError, match="did not return"):
         adapters.parse("httpx", "https://example.com", "", tmp_path)
+
+
+@pytest.mark.parametrize("fail_first", [False, True])
+def test_install_queue_runs_in_order_without_duplicates(monkeypatch, fail_first):
+    from collections import deque
+    monkeypatch.setattr(tools, "STATE", {})
+    monkeypatch.setattr(tools, "INSTALL_QUEUE", deque())
+    monkeypatch.setattr(tools, "INSTALL_WORKER", None)
+    monkeypatch.setattr(tools, "command", lambda tool: None)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def install(tool):
+        calls.append(tool)
+        if tool == "httpx":
+            entered.set()
+            assert release.wait(5)
+            if fail_first:
+                raise OSError("download failed")
+        with tools.LOCK:
+            tools.STATE[tool] = dict(status="ready", message="")
+
+    monkeypatch.setattr(tools, "install", install)
+    tools.start_install("httpx")
+    worker = tools.INSTALL_WORKER
+    try:
+        assert entered.wait(5)
+        tools.start_install("katana")
+        tools.start_install("dnsx")
+        tools.start_install("httpx")
+        tools.start_install("katana")
+        assert calls == ["httpx"]
+        rows = {row["id"]: row for row in tools.catalog()}
+        assert rows["httpx"]["status"] == "installing"
+        assert rows["katana"]["status"] == "queued"
+        assert rows["katana"]["queue_position"] == 1
+        assert rows["dnsx"]["queue_position"] == 2
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert calls == ["httpx", "katana", "dnsx"]
+    assert tools.STATE["httpx"]["status"] == ("error" if fail_first else "ready")
+    assert tools.STATE["dnsx"]["status"] == "ready"
+    assert not tools.INSTALL_QUEUE
+    assert tools.INSTALL_WORKER is None
+    # After draining, a new request starts another worker.
+    tools.start_install("nuclei")
+    worker = tools.INSTALL_WORKER
+    if worker:
+        worker.join(5)
+        assert not worker.is_alive()
+    assert calls == ["httpx", "katana", "dnsx", "nuclei"]
+
+
+def test_install_queue_skips_tools_detected_while_waiting(monkeypatch):
+    from collections import deque
+    monkeypatch.setattr(tools, "STATE", {})
+    monkeypatch.setattr(tools, "INSTALL_QUEUE", deque())
+    monkeypatch.setattr(tools, "INSTALL_WORKER", None)
+    detected = set()
+    monkeypatch.setattr(tools, "command", lambda tool: ["existing"] if tool in detected else None)
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def install(tool):
+        calls.append(tool)
+        entered.set()
+        assert release.wait(5)
+        with tools.LOCK:
+            tools.STATE[tool] = dict(status="ready", message="")
+
+    monkeypatch.setattr(tools, "install", install)
+    tools.start_install("httpx")
+    worker = tools.INSTALL_WORKER
+    try:
+        assert entered.wait(5)
+        tools.start_install("katana")
+        detected.add("katana")
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert calls == ["httpx"]
+    assert tools.STATE["katana"]["status"] == "ready"
