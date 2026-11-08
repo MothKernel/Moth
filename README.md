@@ -6,33 +6,127 @@ Moth is a native desktop website security assessment program with optional scann
 
 ![Moth desktop application](docs/moth-interface.png)
 
-## Launch from your desktop
+## Installation
 
-### Linux
+Moth is a desktop application for Linux and Windows. Source installs require **Python 3.11 or newer**, Git and an internet connection for the first launch. Optional security tools are installed separately from the **Tools** page; you can start with the built-in checks alone.
 
-On the development computer, double-click **Moth** on the desktop or find Moth in the applications menu. The shortcut points to the native executable in `dist/Moth/Moth` when a local build exists.
+### Arch Linux
 
-To run from source:
+Install Python, Git and [Arch's PySide6 package](https://archlinux.org/packages/extra/x86_64/pyside6/):
 
 ```bash
+sudo pacman -Syu --needed git python pyside6
+```
+
+Download Moth and start it:
+
+```bash
+git clone https://github.com/MothKernel/Moth.git
+cd Moth
 bash start.sh
 ```
 
-The launcher creates a virtual environment and installs Qt if necessary. On Linux it can reuse a distribution-installed PySide6. No terminal is needed when launching the desktop shortcut.
+The launcher creates `.venv` in the project folder and can reuse the system PySide6 package. Keep this folder in a permanent location.
 
-Create or refresh the desktop shortcut with:
+Create the desktop and applications-menu shortcuts after the first launch:
 
 ```bash
-python install_desktop.py
+.venv/bin/python install_desktop.py
 ```
 
-### Windows
+You can then launch **Moth** from the applications menu. If your desktop asks, allow launching the desktop shortcut. A local packaged build in `dist/Moth/Moth` takes priority when shortcuts are created; otherwise they use this checkout's virtual environment.
 
-The **Desktop build** GitHub Actions workflow produces a **Moth-Windows** artifact. Download and extract the complete ZIP, then double-click **Moth.exe**. Keep the `_internal` directory beside the executable. The packaged application includes Python and Qt for its own operation.
+### Ubuntu / Debian
 
-To create a desktop shortcut from a source checkout, run `python install_desktop.py`.
+Use a distribution release that provides Python 3.11 or newer. Install the prerequisites:
 
-To run the source checkout instead, install Python 3.11+ with its launcher, then double-click `start.bat`. The source launcher installs dependencies and opens the native window with `pythonw.exe`.
+```bash
+sudo apt update
+sudo apt install git python3 python3-venv python3-pip libegl1 libopengl0 libxcb-cursor0
+```
+
+Clone and launch:
+
+```bash
+git clone https://github.com/MothKernel/Moth.git
+cd Moth
+bash start.sh
+```
+
+On the first launch, Moth creates `.venv` and installs its Python/Qt dependencies. To add desktop shortcuts:
+
+```bash
+.venv/bin/python install_desktop.py
+```
+
+Other Linux distributions need equivalent Python/venv and Qt runtime dependencies.
+
+### Windows — packaged application
+
+1. Sign in to GitHub and open [Desktop build workflow runs](https://github.com/MothKernel/Moth/actions/workflows/desktop-build.yml).
+2. Open a successful run for the version you want and download **Moth-Windows** from its **Artifacts** section. Artifacts expire after 14 days; if none is available, use the source instructions below or build locally.
+3. Extract the **entire ZIP** into a permanent folder.
+4. Double-click **Moth.exe**. Keep the `_internal` folder beside it; do not run the executable from inside the ZIP.
+
+The package includes Python and Qt for Moth itself. Optional tools may still need their own prerequisites. See [GitHub's artifact download instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
+
+### Windows — from source
+
+Install [Python 3.11+](https://www.python.org/downloads/windows/) with the Python launcher (`py`) and [Git for Windows](https://git-scm.com/download/win). Open a terminal and run:
+
+```powershell
+git clone https://github.com/MothKernel/Moth.git
+cd Moth
+.\start.bat
+```
+
+You can also double-click `start.bat` inside the downloaded project. It creates `.venv`, installs dependencies and opens the native window. To create a desktop shortcut after the first launch:
+
+```powershell
+.\.venv\Scripts\python.exe install_desktop.py
+```
+
+### First assessment
+
+1. Open **Tools**, click **Refresh detection** and install any optional tools you need. Installed system tools are detected automatically; queued installations run one at a time.
+2. Return to **Assessment**, enter your website URL and start with **Low**.
+3. Confirm that you own the website or have permission to assess it. For targets such as `http://127.0.0.1:3000`, also enable **Local laboratory**.
+4. Select additional installed tools if needed, then click **Start assessment**. Review **Findings**, **Errors**, **Checks & coverage**, and **ZAP Spider** for results and limitations.
+
+High/Ultra include active checks. Ultra scans all 65,535 TCP ports with Nmap at a maximum configured rate of 50 probes/second, followed by service and selected script checks; this can take substantially longer than a website-port check. Scan-time estimates are approximate.
+
+### Updating an existing source installation
+
+Finish or stop the current assessment, then close Moth. From the project folder:
+
+```bash
+git pull --ff-only
+```
+
+On Linux, refresh dependencies and restart:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+bash start.sh
+```
+
+On Arch installations using distribution PySide6, update it through `sudo pacman -Syu` instead of installing a second Qt copy with pip, then run `bash start.sh`.
+
+On Windows:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\start.bat
+```
+
+Source updates do not rebuild an existing executable in `dist/`. If your shortcut uses a packaged build, rebuild it using the packaging instructions below or replace the complete extracted Windows package. Assessment history and managed tools remain in Moth's separate user data directory.
+
+### Startup troubleshooting
+
+- **Python is missing:** install Python 3.11+; on Windows check `py -3 --version`.
+- **Missing Qt libraries or platform plugin:** install your distribution's Qt runtime dependencies and launch from a graphical desktop session. The Linux packages above include the basic OpenGL/EGL and XCB cursor libraries.
+- **An optional tool is missing:** open **Tools**, check its prerequisite/error message, install it or refresh detection. Python 3.11+ is separately required for Moth-managed SSLyze and WAFW00F even with a packaged Moth executable. Docker is needed only for Docker-based ZAP; Nmap needs its separate installation.
+- **The application is already running:** return to the existing Moth window before launching another instance.
 
 ## Features
 
@@ -110,6 +204,27 @@ The built-in checker retrieves one initial URL in Low and bounded same-origin pa
 Missing hardening, open ports and identified technologies are not automatically vulnerabilities. No findings is not a security guarantee. Tool errors and limited coverage remain visible. External scanner descriptions are currently shown in their original English and labeled accordingly.
 
 Data is stored under `%LOCALAPPDATA%/Moth` on Windows and `~/.local/share/Moth` on Linux. Set `MOTH_DATA_DIR` to override it. Existing assessment history and tool installations from version 0.1 are reused. Raw tool artifacts are removed after each run; normalized findings omit raw response and cookie values. Exported reports can contain target addresses and technical evidence.
+
+## Public repository and private files
+
+The public repository contains the application source, reviewed templates, tests, documentation and generic interface assets. It does not need your `.env`, credentials, private keys, assessment history or scanner output. The `.vscode` files contain portable project settings only.
+
+Keep these local:
+
+- Moth's user data folder (`~/.local/share/Moth` or `%LOCALAPPDATA%/Moth`), including `moth.sqlite3`, tool installations and per-run artifacts. If you override `MOTH_DATA_DIR`, choose a location outside the checkout.
+- Exported HTML/JSON reports, request captures, scanner logs and backups. Reports may reveal target addresses, server details and findings; use the ignored root `reports/` or `exports/` folder when saving them in a checkout.
+- Real API credentials, `.env` files, private keys and certificates containing private keys. `.env.example`, if added, must contain placeholders only.
+
+`.gitignore` excludes common local data, report folders, logs, databases, credentials and build artifacts. It does **not** protect files already committed or arbitrary report filenames saved elsewhere. Source code and necessary non-secret configuration remain public; GitHub Actions uploads only the packaged `dist/Moth/` directory.
+
+Before publishing changes, review `git status --short` and `git diff --cached`. If [Gitleaks](https://github.com/gitleaks/gitleaks) is installed, scan all Git history and staged changes:
+
+```bash
+gitleaks git --log-opts=--all --redact --no-banner .
+gitleaks git --pre-commit --staged --redact --no-banner .
+```
+
+If a real secret is ever committed, revoke or rotate it first; removing the working copy or adding an ignore rule does not remove it from Git history. Automated scans are useful checks, not a guarantee that every sensitive value is detected.
 
 ## Development and packaging
 
