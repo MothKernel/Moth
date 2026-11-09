@@ -174,7 +174,7 @@ class WorkflowUI:
             status, data = self.background_results.get_nowait()
             self.busy_diagnostics = False
             if isinstance(data, list):
-                data = '\n\n'.join(row['tool'] + ' · ' + self.tr_text(row['status']) + '\n' + row['message'] for row in data)
+                data = '\n\n'.join(row['tool'] + ' · ' + self.tr_text('prerequisite_' + row['status']) + '\n' + row['message'] for row in data)
             self.preflight_text.setPlainText(data)
         except queue.Empty:
             pass
@@ -215,7 +215,7 @@ class WorkflowUI:
         if not self.current:
             return
         if self.current.get('preflight'):
-            self.preflight_text.setPlainText('\n\n'.join(row['tool'] + ' · ' + self.tr_text(row['status']) + '\n' + row['message'] for row in self.current['preflight']) + ('\n\n' + '\n'.join(self.current['warnings']) if self.current.get('warnings') else ''))
+            self.preflight_text.setPlainText('\n\n'.join(row['tool'] + ' · ' + self.tr_text('prerequisite_' + row['status']) + '\n' + row['message'] for row in self.current['preflight']) + ('\n\n' + '\n'.join(self.current['warnings']) if self.current.get('warnings') else ''))
 
     def render_result_workflow(self):
         if not self.current:

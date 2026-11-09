@@ -1,5 +1,6 @@
 """Read-only preparation checks and an explicit template preparation action."""
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -37,16 +38,26 @@ def inspect(target, selected, profile, options, authenticated=False, cancel=None
                 flag, required = FLAGS[tool]
                 result = subprocess.run(cmd + [flag], capture_output=True, timeout=12, env=external_environment(), creationflags=no_console_flags())
                 output = (result.stdout + result.stderr).decode(errors='replace')[:250000]
+                if tool == 'nmap':
+                    # Nmap abbreviates scan flags as "-sS/sT/sA/sW/sM".
+                    # Expand that group before checking the advertised -sT flag.
+                    output = re.sub(r'(?m)^(\s*)-(s[A-Za-z](?:/s[A-Za-z])+)(?=[:\s])',
+                                    lambda match: match[1] + ' '.join('-' + flag for flag in match[2].split('/')), output)
                 if result.returncode not in (0, 1) or any(value not in output for value in required):
                     raise ValueError('Required CLI options are missing. Update this tool or verify its installation.')
             if tool == 'nuclei':
                 path = TOOLS / 'nuclei/templates/http' if profile in ('high', 'ultra') else ROOT / 'templates'
                 if not path.is_dir() or not any(path.rglob('*.yaml')):
-                    raise ValueError('Nuclei templates are missing or empty. Use Prepare templates before starting.')
+                    raise ValueError('Nuclei templates are missing or empty. Open Diagnostics and click Prepare official Nuclei templates, then check prerequisites again.')
             if tool == 'zap' and tools.is_docker_zap(cmd):
+                engine = subprocess.run([cmd[0], 'info', '--format', '{{.OSType}}'], capture_output=True, timeout=12, env=external_environment(), creationflags=no_console_flags())
+                if engine.returncode:
+                    raise ValueError('Docker engine is unavailable. Open Docker Desktop, complete its setup and wait for Engine running, then check prerequisites again.')
+                if engine.stdout.strip() != b'linux':
+                    raise ValueError('ZAP needs Linux containers. Switch Docker Desktop to Linux containers, then check prerequisites again.')
                 ready = subprocess.run([cmd[0], 'image', 'inspect', cmd[1]], capture_output=True, timeout=12, env=external_environment(), creationflags=no_console_flags())
                 if ready.returncode:
-                    raise ValueError('Docker or its pinned ZAP image is unavailable. Start Docker and install ZAP from Tools.')
+                    raise ValueError('Docker is running, but the pinned ZAP image is unavailable. Open Tools and click Repair ZAP image to download it again, then check prerequisites.')
             if tool == 'zap' and not tools.is_docker_zap(cmd):
                 # ZAP checks the actual automation/API readiness at runtime as well.
                 jar_dirs = [Path(cmd[0]).parent / 'plugin', Path('/usr/share/zaproxy/plugin')]

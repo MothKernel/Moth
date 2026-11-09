@@ -7,7 +7,7 @@ from PySide6.QtCore import QSettings, Qt, QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog
 from moth.desktop import MainWindow, TRANSLATIONS
-from moth import storage
+from moth import storage, __version__
 
 
 @pytest.fixture(scope="session")
@@ -40,7 +40,7 @@ def wait_until(qapp, predicate, seconds=5):
 
 def test_native_window_language_and_navigation(window, qapp):
     assert window.isVisible()
-    assert window.windowTitle() == "Moth 0.2.0"
+    assert window.windowTitle() == f"Moth {__version__}"
     assert window.tool_checks.keys() == {"httpx", "sslyze", "katana", "zap", "nuclei", "retire", "dnsx", "wafw00f", "subfinder", "nmap"}
     for code in ("ro", "ru", "en"):
         window.language_box.setCurrentIndex(window.language_box.findData(code))
@@ -435,3 +435,20 @@ def test_dependency_button_installs_only_chosen_program(window, monkeypatch):
     monkeypatch.setattr(tools,'start_install',lambda tool:calls.append(tool))
     window.install_tool('docker')
     assert calls==['docker']
+
+
+def test_repair_zap_button_queues_only_image_repair(window, monkeypatch, qapp):
+    from moth import tools
+    from PySide6.QtWidgets import QPushButton
+    rows=[dict(row) for row in window.tool_rows]
+    zap=next(row for row in rows if row['id']=='zap')
+    zap.update(status='ready',source='docker',location='docker ghcr.io/zaproxy/zaproxy@sha256:example')
+    monkeypatch.setattr(tools,'catalog',lambda:rows)
+    calls=[]
+    monkeypatch.setattr(tools,'start_install',lambda tool,update=False:calls.append((tool,update)))
+    window.refresh_tools(force=True)
+    qapp.processEvents()
+    repair=window.findChild(QPushButton,'repair_zap')
+    assert repair is not None and repair.isEnabled()
+    repair.click()
+    assert calls==[('zap',True)]

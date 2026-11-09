@@ -78,3 +78,16 @@ def test_findings_sort_by_numeric_severity_and_recorded_tool_completion():
     for step in scan['steps']:
         step.pop('completion_order')
     assert order('completion_oldest')==['three','two','four','one']
+
+
+def test_prerequisite_errors_have_specific_titles_and_actions():
+    from moth.presentation import error_help
+    for message,title,action in [
+        ('Nuclei templates are missing or empty.','Nuclei templates need preparation','Prepare official Nuclei templates'),
+        ('Docker engine is unavailable.','Docker is not ready for ZAP','Engine running'),
+        ('Docker is running, but the pinned ZAP image is unavailable.','The ZAP container image needs repair','Repair ZAP image'),
+    ]:
+        result=error_help(message)
+        assert result[0]==title and action in result[2]
+        assert error_help(message,'ro')[0]!=title
+        assert error_help(message,'ru')[0]!=title

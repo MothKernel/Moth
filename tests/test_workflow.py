@@ -224,3 +224,50 @@ def test_targeted_recheck_records_absence_without_rerunning_ultra_tools(monkeypa
     assert scan['tools']==[]
     assert scan['recheck_result']=='absent'
     assert not scan['comparison']['comparable']
+
+
+@pytest.mark.parametrize('help_text,status', [
+    ('SCAN TECHNIQUES:\n  -sS/sT/sA/sW/sM: TCP SYN/Connect scans\n  -oN/-oX/-oS/-oG <file>', 'ready'),
+    ('  -sT: TCP Connect\n  -oX <file>', 'ready'),
+    ('  -sS/sA/sW/sM: TCP scans\n  -oX <file>', 'error'),
+    ('  -sS/sT/sA: TCP scans\n  -oN <file>', 'error'),
+])
+def test_nmap_preflight_understands_grouped_scan_flags(monkeypatch,help_text,status):
+    monkeypatch.setattr(preflight.tools,'command',lambda tool:['nmap'])
+    monkeypatch.setattr(preflight.subprocess,'run',lambda *args,**kwargs:SimpleNamespace(returncode=0,stdout=help_text.encode(),stderr=b''))
+    assert preflight.inspect('https://example.com/',['nmap'],'low',validate())[0]['status']==status
+
+
+@pytest.mark.parametrize('engine_code,engine_kind,image_code,expected', [
+    (1,b'',0,'Docker engine is unavailable'),
+    (0,b'windows\n',0,'Switch Docker Desktop to Linux containers'),
+    (0,b'linux\n',1,'Repair ZAP image'),
+    (0,b'linux\n',0,None),
+])
+def test_zap_preflight_distinguishes_engine_and_image_failures(monkeypatch,engine_code,engine_kind,image_code,expected):
+    monkeypatch.setattr(preflight.tools,'command',lambda tool:['docker','ghcr.io/zaproxy/zaproxy@sha256:example'])
+    calls=[]
+    def run(args,**kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=engine_code if args[1]=='info' else image_code,stdout=engine_kind,stderr=b'')
+    monkeypatch.setattr(preflight.subprocess,'run',run)
+    row=preflight.inspect('https://example.com/',['zap'],'low',validate())[0]
+    if expected:
+        assert row['status']=='error' and expected in row['message']
+    else:assert row['status']=='ready'
+    if engine_code or engine_kind.strip()!=b'linux':
+        assert len(calls)==1
+
+
+def test_preflight_failures_are_retained_as_tool_errors(monkeypatch):
+    monkeypatch.setattr(engine,'command',lambda tool:[tool])
+    monkeypatch.setattr(engine,'catalog',lambda:[])
+    monkeypatch.setattr(engine,'resolve',lambda *args:['127.0.0.1'])
+    diagnostics=[dict(tool='zap',status='error',message='Docker engine is unavailable.'),dict(tool='nuclei',status='error',message='Nuclei templates are missing.')]
+    monkeypatch.setattr(preflight,'inspect',lambda *args:diagnostics)
+    monkeypatch.setattr(engine,'basic_profile',lambda *args:pytest.fail('Scan began despite preflight failure'))
+    identifier=engine.start('https://example.com/',['zap','nuclei'],True)
+    scan=wait_scan(identifier)
+    assert scan['status']=='failed'
+    assert scan['errors']==[dict(tool=row['tool'],message=row['message']) for row in diagnostics]
+    assert scan['preflight']==diagnostics and scan['steps']==[]

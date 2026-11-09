@@ -291,7 +291,11 @@
     "setup_docker_missing": "Install Docker from its separate Requirements card, then retry ZAP.",
     "setup_winget": "Install or update Microsoft App Installer (WinGet) from Microsoft Store, then retry Python installation. You can also use the official Python website.",
     "setup_homebrew": "Install Homebrew from brew.sh, or install Python from its official website, then refresh detection.",
-    "setup_runtime_missing": "Setup finished, but the runtime is not yet detected. Complete its installer, then restart Moth and refresh detection."
+    "setup_runtime_missing": "Setup finished, but the runtime is not yet detected. Complete its installer, then restart Moth and refresh detection.",
+    "repair_zap": "Repair ZAP image",
+    "prerequisite_ready": "Ready",
+    "prerequisite_error": "Action required",
+    "prerequisite_skip": "Not applicable"
   },
   "ro": {
     "scan_in_progress": "Încheie sau oprește evaluarea curentă înainte de a deschide alta.",
@@ -585,7 +589,11 @@
     "setup_docker_missing": "Instalează Docker din cardul separat din Dependențe, apoi reîncearcă ZAP.",
     "setup_winget": "Instalează sau actualizează Microsoft App Installer (WinGet) din Microsoft Store, apoi reîncearcă Python. Poți folosi și site-ul oficial Python.",
     "setup_homebrew": "Instalează Homebrew de pe brew.sh sau Python de pe site-ul oficial, apoi verifică detectarea.",
-    "setup_runtime_missing": "Configurarea s-a încheiat, dar programul nu este încă detectat. Finalizează instalatorul, apoi repornește Moth și verifică detectarea."
+    "setup_runtime_missing": "Configurarea s-a încheiat, dar programul nu este încă detectat. Finalizează instalatorul, apoi repornește Moth și verifică detectarea.",
+    "repair_zap": "Repară imaginea ZAP",
+    "prerequisite_ready": "Pregătit",
+    "prerequisite_error": "Necesită intervenție",
+    "prerequisite_skip": "Nu se aplică"
   },
   "ru": {
     "scan_in_progress": "Завершите или остановите текущую проверку, прежде чем открывать другую.",
@@ -879,6 +887,10 @@
     "setup_docker_missing": "Установите Docker через отдельную карточку в разделе Зависимости и повторите установку ZAP.",
     "setup_winget": "Установите или обновите Microsoft App Installer (WinGet) из Microsoft Store и повторите установку Python. Также можно использовать официальный сайт Python.",
     "setup_homebrew": "Установите Homebrew с brew.sh или Python с официального сайта и обновите обнаружение.",
-    "setup_runtime_missing": "Настройка завершена, но программа еще не обнаружена. Завершите установщик, перезапустите Moth и обновите обнаружение."
+    "setup_runtime_missing": "Настройка завершена, но программа еще не обнаружена. Завершите установщик, перезапустите Moth и обновите обнаружение.",
+    "repair_zap": "Восстановить образ ZAP",
+    "prerequisite_ready": "Готово",
+    "prerequisite_error": "Требуется действие",
+    "prerequisite_skip": "Неприменимо"
   }
 }

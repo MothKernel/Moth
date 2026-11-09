@@ -32,3 +32,11 @@ def test_database_handles_are_closed():
         db.execute("SELECT 1")
     with pytest.raises(sqlite3.ProgrammingError):
         db.execute("SELECT 1")
+
+
+def test_html_report_includes_escaped_preflight_diagnostics():
+    scan=dict(id='preflight-example',target='https://example.com/',created='2026-11-09',status='failed',findings=[],errors=[],preflight=[dict(tool='nuclei',status='error',message='Templates missing <script>alert(1)</script>')])
+    report=render(scan)
+    assert 'Diagnostics' in report and 'nuclei' in report
+    assert 'Templates missing &lt;script&gt;' in report
+    assert '<script>alert(1)</script>' not in report

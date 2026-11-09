@@ -93,6 +93,18 @@ def evidence_text(value):
 
 
 ERRORS = {
+'nuclei_templates': (
+ ('Nuclei templates need preparation', 'The selected profile needs a local collection of Nuclei checks. That collection is missing or empty.', 'Open Diagnostics, click Prepare official Nuclei templates, wait for completion, then check prerequisites again.'),
+ ('Trebuie pregătite template-urile Nuclei', 'Profilul ales necesită o colecție locală de verificări Nuclei. Aceasta lipsește sau este goală.', 'Deschide Diagnostics, apasă Prepare official Nuclei templates, așteaptă finalizarea, apoi verifică din nou cerințele.'),
+ ('Нужно подготовить шаблоны Nuclei', 'Для выбранного профиля нужен локальный набор проверок Nuclei. Он отсутствует или пуст.', 'Откройте Diagnostics, нажмите Prepare official Nuclei templates, дождитесь завершения и повторите проверку зависимостей.')),
+'docker_engine': (
+ ('Docker is not ready for ZAP', 'ZAP uses Docker, but its Linux container engine is unavailable or configured for Windows containers.', 'Open Docker Desktop, complete setup, select Linux containers and wait for Engine running. Then check prerequisites again.'),
+ ('Docker nu este pregătit pentru ZAP', 'ZAP folosește Docker, dar motorul de containere Linux nu este disponibil sau sunt selectate containere Windows.', 'Deschide Docker Desktop, finalizează configurarea, selectează containere Linux și așteaptă Engine running. Apoi verifică din nou cerințele.'),
+ ('Docker не готов для ZAP', 'ZAP использует Docker, но движок контейнеров Linux недоступен или выбраны контейнеры Windows.', 'Откройте Docker Desktop, завершите настройку, выберите контейнеры Linux и дождитесь Engine running. Повторите проверку зависимостей.')),
+'zap_image': (
+ ('The ZAP container image needs repair', 'Docker is running, but the exact ZAP image recorded by Moth is not available locally.', 'Open Tools and click Repair ZAP image. Wait for completion, then check prerequisites again.'),
+ ('Imaginea ZAP trebuie reparată', 'Docker rulează, dar imaginea exactă ZAP înregistrată de Moth nu este disponibilă local.', 'Deschide Tools și apasă Repair ZAP image. Așteaptă finalizarea, apoi verifică din nou cerințele.'),
+ ('Нужно восстановить образ ZAP', 'Docker работает, но точный образ ZAP, сохраненный в Moth, недоступен локально.', 'Откройте Tools и нажмите Repair ZAP image. Дождитесь завершения и повторите проверку зависимостей.')),
 'local': (
  ('Local laboratory option is required', 'The target resolves to a private or local address. Moth stopped before scanning it.', 'For your authorized local lab, enable “Local laboratory” and start again.'),
  ('Este necesară opțiunea de laborator local', 'Adresa este locală sau privată. Moth s-a oprit înainte de scanare.', 'Pentru laboratorul local autorizat, bifează „Local laboratory” și pornește din nou.'),
@@ -126,7 +138,13 @@ ERRORS = {
 
 def error_help(message, language='en'):
     lower = message.lower()
-    if 'local laboratory' in lower:
+    if 'nuclei templates are missing' in lower:
+        key = 'nuclei_templates'
+    elif 'docker engine is unavailable' in lower or 'switch docker desktop to linux containers' in lower:
+        key = 'docker_engine'
+    elif 'pinned zap image is unavailable' in lower and 'docker is running' in lower:
+        key = 'zap_image'
+    elif 'local laboratory' in lower:
         key = 'local'
     elif 'https url for sslyze' in lower:
         key = 'https'

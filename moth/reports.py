@@ -39,6 +39,8 @@ pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f5f0;padding:16px
 </style><body><p>MOTH / {esc(scan['created'])}</p><h1>{labels[0]}</h1>
 <p>{esc(scan['target'])}</p><p>{labels[1]}: {esc(scan['status'])} · {esc(scan.get("profile", "low").title())}</p>
 <h2>{labels[2]}</h2><pre>{esc(scan.get('coverage', {}))}</pre><pre>{esc(scan.get('tool_versions', {}))}</pre><pre>{esc(scan.get("tool_scope", {}))}</pre>
+<h2>{esc(translated['diagnostics'])}</h2>
+{''.join('<article><h3>' + esc(row['tool']) + ' · ' + esc(translated.get('prerequisite_' + row['status'], row['status'])) + '</h3><pre>' + esc(row['message']) + '</pre></article>' for row in scan.get('preflight', [])) or '—'}
 <h2>ZAP Spider</h2><pre>{esc(json.dumps(scan.get('spider', {}), ensure_ascii=False, indent=2))}</pre>
 {priority_html}{comparison_html}
 {''.join(cards) or f'<p>{labels[6]}</p>'}<h2>{labels[5]}</h2>{errors or '—'}

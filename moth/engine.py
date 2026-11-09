@@ -152,8 +152,11 @@ def worker(scan, cancel, session=None):
         scan['preflight'] = preflight.inspect(scan['target'], scan['tools'], scan.get('profile', 'low'), scan.get('options') or validate_options(), bool(session.headers), cancel)
         if cancel.is_set():
             raise Cancelled()
-        if any(row['status'] == 'error' for row in scan['preflight']):
-            raise ValueError('Preflight failed. Open Diagnostics to review prerequisites before scanning.')
+        blocked = [row for row in scan['preflight'] if row['status'] == 'error']
+        if blocked:
+            scan['errors'].extend(dict(tool=row['tool'], message=row['message']) for row in blocked)
+            scan.update(status='failed', stage='failed')
+            return
         if session.headers:
             if excluded(session.verify_url, scan['options']):
                 raise ValueError('The session verification URL is excluded.')

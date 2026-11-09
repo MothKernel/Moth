@@ -1089,6 +1089,12 @@ class MainWindow(WorkflowUI, QMainWindow):
                 install.clicked.connect(lambda checked=False, tool=row["id"]: self.install_tool(tool))
                 buttons.addWidget(install)
             official = QPushButton(self.tr_text("upstream"))
+            if row["id"] == "zap" and row.get("source") == "docker" and row["status"] not in ("installing", "queued"):
+                repair = QPushButton(self.tr_text("repair_zap"))
+                repair.setObjectName("repair_zap")
+                repair.setEnabled(not self.running())
+                repair.clicked.connect(lambda checked=False: self.update_tool("zap", True))
+                buttons.addWidget(repair)
             official.clicked.connect(lambda checked=False, url=row["url"]: QDesktopServices.openUrl(QUrl(url)))
             buttons.addWidget(official)
             buttons.addStretch()
