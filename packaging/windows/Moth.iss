@@ -31,7 +31,6 @@ DisableProgramGroupPage=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "romanian"; MessagesFile: "compiler:Languages\Romanian.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Tasks]
