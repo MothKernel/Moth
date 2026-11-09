@@ -23,3 +23,13 @@ def test_external_scanners_do_not_inherit_packaged_libraries(monkeypatch):
     environment = external_environment()
     assert environment["LD_LIBRARY_PATH"] == "/system/custom"
     assert "LIBPATH" not in environment
+
+
+def test_finder_launched_scanners_can_resolve_homebrew_dependencies(monkeypatch):
+    import os
+    monkeypatch.setattr(sys, 'platform', 'darwin')
+    monkeypatch.setenv('PATH', os.pathsep.join(['/usr/bin', '/bin']))
+    paths = external_environment()['PATH'].split(os.pathsep)
+    assert paths[:2] == ['/usr/bin', '/bin']
+    assert all(path in paths for path in ('/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin'))
+    assert os.environ['PATH'] == os.pathsep.join(['/usr/bin', '/bin'])
