@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import shlex
 from pathlib import Path
 from .config import ROOT
 from .processes import external_environment, no_console_flags
@@ -42,6 +43,24 @@ $link.Save()
         subprocess.run(["powershell", "-NoProfile", "-Command", script], env=env, check=True, timeout=20,
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=no_console_flags())
         return "Moth.lnk"
+    if sys.platform == 'darwin':
+        desktop = Path.home() / 'Desktop'
+        desktop.mkdir(parents=True, exist_ok=True)
+        bundle = next((parent for parent in Path(sys.executable).parents if parent.suffix == '.app'), None) if frozen else project / 'dist/Moth.app'
+        if bundle and bundle.is_dir():
+            alias = desktop / 'Moth.app'
+            if alias.is_symlink() and alias.resolve() == bundle.resolve():
+                return str(alias)
+            if alias.exists() or alias.is_symlink():
+                raise ValueError('A different Moth.app already exists on the Desktop. Move it before creating a shortcut.')
+            alias.symlink_to(bundle, target_is_directory=True)
+            return str(alias)
+        launcher = desktop / 'Moth.command'
+        if launcher.exists():
+            raise ValueError('Moth.command already exists on the Desktop. Move it before creating another launcher.')
+        launcher.write_text('#!/bin/bash\nexec /bin/bash ' + shlex.quote(str(project / 'start.sh')) + '\n', encoding='utf-8')
+        launcher.chmod(0o755)
+        return str(launcher)
     entry = "\n".join([
         "[Desktop Entry]", "Type=Application", "Name=Moth", "Comment=Desktop website security assessment",
         "Exec=" + " ".join(desktop_quote(arg) for arg in [str(executable)] + arguments),

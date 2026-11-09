@@ -5,6 +5,7 @@ from moth.processes import external_environment
 
 def test_frozen_app_never_uses_itself_as_python(monkeypatch):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(tools.shutil, "which", lambda name: sys.executable)
     assert tools.python_runtime() is None
 

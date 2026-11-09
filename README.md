@@ -24,7 +24,7 @@ Moth is a native desktop website security assessment program with optional scann
 
 ## Installation
 
-Moth is a desktop application for Linux and Windows. Source installs require **Python 3.11 or newer**, Git and an internet connection for the first launch. Optional security tools are installed separately from the **Tools** page; you can start with the built-in checks alone.
+Moth is a desktop application for Linux, Windows and macOS. Source installs require **Python 3.11 or newer**, Git and an internet connection for the first launch. Optional security tools are installed separately from the **Tools** page; you can start with the built-in checks alone.
 
 ### Arch Linux
 
@@ -77,14 +77,37 @@ On the first launch, Moth creates `.venv` and installs its Python/Qt dependencie
 
 Other Linux distributions need equivalent Python/venv and Qt runtime dependencies.
 
-### Windows — packaged application
+### Windows — easy setup
 
-1. Sign in to GitHub and open [Desktop build workflow runs](https://github.com/MothKernel/Moth/actions/workflows/desktop-build.yml).
-2. Open a successful run for the version you want and download **Moth-Windows** from its **Artifacts** section. Artifacts expire after 14 days; if none is available, use the source instructions below or build locally.
-3. Extract the **entire ZIP** into a permanent folder.
-4. Double-click **Moth.exe**. Keep the `_internal` folder beside it; do not run the executable from inside the ZIP.
+1. Open [Moth releases](https://github.com/MothKernel/Moth/releases) and choose the newest installer preview for your version.
+2. Download **Moth-VERSION-Windows-x64-Setup.exe** from its Assets section.
+3. Run Setup, choose the install folder and optionally enable the desktop shortcut.
+4. Open **Moth** from Start or the shortcut. No separate Python or manual ZIP extraction is needed for Moth itself.
 
-The package includes Python and Qt for Moth itself. Optional tools may still need their own prerequisites. See [GitHub's artifact download instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
+Setup installs for the current user under `%LOCALAPPDATA%/Programs/Moth` without requesting administrator access. Use Windows **Installed apps** to uninstall. Assessment history and managed scanners stay in `%LOCALAPPDATA%/Moth`; uninstall does not delete them. Close Moth before an upgrade and run the newer Setup in the same location.
+
+The setup targets Windows 10/11 x64. Preview builds currently have no publisher signing certificate, so Windows may show an unknown-publisher/SmartScreen prompt. Only approve a download you trust after checking the repository and its SHA-256 file.
+
+If no release is available yet, check [Desktop build runs](https://github.com/MothKernel/Moth/actions/workflows/desktop-build.yml): **Moth-Windows-Setup** contains the installer and checksum. GitHub artifact downloads require signing in and expire after 14 days. Older **Moth-Windows** artifacts are portable ZIPs: extract the full ZIP, keep `_internal` beside `Moth.exe`, and launch that executable.
+
+### macOS — drag-and-drop installation
+
+The native package targets **macOS 15 or newer**, with separate downloads for both processor families:
+
+| Your Mac (Apple menu → About This Mac) | Download |
+| --- | --- |
+| Apple M-series chip | **Moth-VERSION-macOS-arm64.dmg** |
+| Intel processor | **Moth-VERSION-macOS-x86_64.dmg** |
+
+1. Download the matching DMG from [Moth releases](https://github.com/MothKernel/Moth/releases).
+2. Open it and drag **Moth.app** onto **Applications** in the disk-image window.
+3. Eject the disk image, then open **Moth** from Applications. Python and Qt are included.
+
+Preview bundles have an ad-hoc signature for bundle integrity, not an Apple Developer ID signature or notarization. If macOS blocks a trusted copy, follow [Apple's instructions](https://support.apple.com/en-us/102445): after trying to launch it, open **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper globally. If no release exists yet, matching DMGs are in the **Moth-macOS-arm64** and **Moth-macOS-x86_64** workflow artifacts.
+
+History and managed tools use `~/Library/Application Support/Moth`. Existing installations that already use `~/.local/share/Moth` continue using that folder. To upgrade, close Moth and replace the app in Applications; to uninstall, move Moth.app to Trash. User data remains separate.
+
+For a source checkout on macOS, install Python 3.11+ and Git, clone the repository and run `bash start.sh`. Optional Python-based scanners need an external Python runtime even when Moth itself is packaged. Finder-launched apps also search common Homebrew executable locations.
 
 ### Windows — from source
 
@@ -246,7 +269,7 @@ The built-in checker retrieves one initial URL in Low and bounded same-origin pa
 
 Missing hardening, open ports and identified technologies are not automatically vulnerabilities. No findings is not a security guarantee. Tool errors and limited coverage remain visible. External scanner descriptions are currently shown in their original English and labeled accordingly.
 
-Data is stored under `%LOCALAPPDATA%/Moth` on Windows and `~/.local/share/Moth` on Linux. Set `MOTH_DATA_DIR` to override it. Existing assessment history and tool installations from version 0.1 are reused. Raw tool artifacts are removed after each run; normalized findings omit raw response and cookie values. Exported reports can contain target addresses and technical evidence.
+Data is stored under `%LOCALAPPDATA%/Moth` on Windows, `~/.local/share/Moth` on Linux and `~/Library/Application Support/Moth` on new macOS installations (existing macOS data at the Linux-style path is reused). Set `MOTH_DATA_DIR` to override it. Existing assessment history and tool installations from version 0.1 are reused. Raw tool artifacts are removed after each run; normalized findings omit raw response and cookie values. Exported reports can contain target addresses and technical evidence.
 
 ## Public repository and private files
 
@@ -254,11 +277,11 @@ The public repository contains the application source, reviewed templates, tests
 
 Keep these local:
 
-- Moth's user data folder (`~/.local/share/Moth` or `%LOCALAPPDATA%/Moth`), including `moth.sqlite3`, tool installations and per-run artifacts. If you override `MOTH_DATA_DIR`, choose a location outside the checkout.
+- Moth's user data folder (`~/.local/share/Moth`, `%LOCALAPPDATA%/Moth` or `~/Library/Application Support/Moth`), including `moth.sqlite3`, tool installations and per-run artifacts. If you override `MOTH_DATA_DIR`, choose a location outside the checkout.
 - Exported HTML/JSON reports, request captures, scanner logs and backups. Reports may reveal target addresses, server details and findings; use the ignored root `reports/` or `exports/` folder when saving them in a checkout.
 - Real API credentials, `.env` files, private keys and certificates containing private keys. `.env.example`, if added, must contain placeholders only.
 
-`.gitignore` excludes common local data, report folders, logs, databases, credentials and build artifacts. It does **not** protect files already committed or arbitrary report filenames saved elsewhere. Source code and necessary non-secret configuration remain public; GitHub Actions uploads only the packaged `dist/Moth/` directory.
+`.gitignore` excludes common local data, report folders, logs, databases, credentials and build artifacts. It does **not** protect files already committed or arbitrary report filenames saved elsewhere. Source code and necessary non-secret configuration remain public; GitHub Actions publishes generated installers/DMGs and checksums from `release/`; local databases, scanner installations and run artifacts are excluded.
 
 Before publishing changes, review `git status --short` and `git diff --cached`. If [Gitleaks](https://github.com/gitleaks/gitleaks) is installed, scan all Git history and staged changes:
 
@@ -287,7 +310,23 @@ python -m pip install "pyinstaller>=6.15,<7"
 python -m PyInstaller --noconfirm Moth.spec
 ```
 
-The output is `dist/Moth/Moth.exe` on Windows and `dist/Moth/Moth` on Linux, plus required libraries in `_internal`. `--smoke-test` opens the native window and closes it automatically for packaging checks. Builds are OS-specific; a Linux build is not a Windows executable.
+The output is `dist/Moth/Moth.exe` on Windows, `dist/Moth/Moth` on Linux (with required `_internal` libraries), and `dist/Moth.app` on macOS. `--smoke-test` opens the native window and closes it automatically for packaging checks. Builds are OS-specific; build Windows and macOS packages on their respective operating systems.
+
+After PyInstaller, create the Windows installer with [Inno Setup 6](https://jrsoftware.org/isinfo.php):
+
+```powershell
+ISCC /DAppVersion=0.2.0 packaging/windows/Moth.iss
+```
+
+On macOS, create the native disk image:
+
+```bash
+bash packaging/macos/build-dmg.sh
+```
+
+Outputs go to the ignored `release/` folder. The **Desktop build** workflow builds Windows x64 and macOS arm64/x86_64, runs native tests and checks packaged startup. Windows also tests installation/uninstallation and preservation of user data; macOS verifies bundle signature structure and launch from the mounted DMG. The signing check does not imply Developer ID/notarization.
+
+Run the workflow manually with **Publish tested installers as a public preview release** enabled to publish direct download assets only after all three builds pass. Ordinary pushes build artifacts without publishing a release. Commercial Windows signing and Apple Developer ID/notarization require separately provisioned certificates/accounts; none are bundled in the repository.
 
 Project layout:
 

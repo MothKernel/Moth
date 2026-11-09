@@ -16,7 +16,7 @@ Moth 0.2 is a native Qt Widgets desktop program. The browser frontend has been r
 - Priority recommendations, visible execution errors and coverage limits.
 - Prerequisite/CLI checks and explicit preparation of official Nuclei templates.
 - ZAP spider URL/HTML counts, local SQLite history, standalone HTML/JSON exports.
-- Desktop shortcuts, single-instance protection, local Linux packaging and Windows build workflow.
+- Desktop shortcuts, single-instance protection, local Linux packaging, a Windows per-user setup and macOS Intel/Apple Silicon DMG build workflows.
 - Native widget/core tests; local ZAP/Katana authentication and Nmap progress integration checks.
 
 ## Proposed next work — not implemented
@@ -27,7 +27,7 @@ Moth 0.2 is a native Qt Widgets desktop program. The browser frontend has been r
 - Detection of rate limiting/service overload and adaptive request pacing.
 - Browser-rendered crawling for JavaScript applications.
 - OpenAPI import and selected API endpoint assessment.
-- Signed installation packages and an update channel for Moth itself.
+- Publisher-signed Windows setup, Apple Developer ID/notarization and an update channel for Moth itself.
 - Repeatable regression labs measuring findings, missed cases and false positives.
 
 ## Remaining validation

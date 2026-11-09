@@ -4,30 +4,147 @@ on:
     paths:
       - 'main.py'
       - 'moth/**'
+      - 'packaging/**'
       - 'Moth.spec'
-      - 'requirements.txt'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
       - '.github/workflows/desktop-build.yml'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish tested installers as a public preview release
+        type: boolean
+        default: true
+permissions:
+  contents: read
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt "pyinstaller>=6.15,<7"
-      - run: python -m PyInstaller --noconfirm Moth.spec
-      - name: Smoke-test native executable
+          architecture: x64
+      - run: python -m pip install -r requirements-dev.txt "pyinstaller>=6.15,<7"
+      - name: Test native application
         env:
           QT_QPA_PLATFORM: offscreen
-          MOTH_DATA_DIR: ${{ runner.temp }}/moth-smoke
+        run: python -m pytest -q
+      - run: python -m PyInstaller --noconfirm Moth.spec
+      - name: Build per-user Windows setup
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath dist/Moth/Moth.exe -ArgumentList '--smoke-test' -PassThru -Wait
-          if ($process.ExitCode -ne 0) { throw "Moth.exe failed with exit code $($process.ExitCode)" }
+          $version = python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $compiler)) { choco install innosetup --no-progress -y }
+          & $compiler "/DAppVersion=$version" "/DRepoRoot=$pwd" packaging/windows/Moth.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+          Get-ChildItem release/*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
+      - name: Install, launch and uninstall setup
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MOTH_DATA_DIR: ${{ runner.temp }}/moth-installer-data
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem release/*Setup.exe).FullName
+          $installDir = Join-Path $env:RUNNER_TEMP 'Moth Install Smoke'
+          $arguments = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="' + $installDir + '"'
+          $process = Start-Process $setup -ArgumentList $arguments -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw 'Setup failed' }
+          if (!(Test-Path "$installDir/_internal")) { throw 'Bundled dependencies missing' }
+          New-Item -ItemType Directory -Force $env:MOTH_DATA_DIR | Out-Null
+          'Preserve local assessment data' | Set-Content "$env:MOTH_DATA_DIR/retain.txt"
+          $process = Start-Process "$installDir/Moth.exe" -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw 'Installed Moth failed to launch' }
+          $process = Start-Process "$installDir/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw 'Uninstall failed' }
+          if (!(Test-Path "$env:MOTH_DATA_DIR/retain.txt")) { throw 'Uninstaller removed user data' }
       - uses: actions/upload-artifact@v7
         with:
-          name: Moth-Windows
-          path: dist/Moth/
+          name: Moth-Windows-Setup
+          path: release/*
+          if-no-files-found: error
           retention-days: 14
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Verify build architecture
+        run: test "$(uname -m)" = '${{ matrix.arch }}'
+      - run: python -m pip install -r requirements-dev.txt "pyinstaller>=6.15,<7"
+      - name: Test native application
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+      - run: python -m PyInstaller --noconfirm Moth.spec
+      - name: Verify app bundle and signature structure
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MOTH_DATA_DIR: ${{ runner.temp }}/moth-app-smoke
+        run: |
+          codesign --verify --deep --strict dist/Moth.app
+          dist/Moth.app/Contents/MacOS/Moth --smoke-test
+      - run: bash packaging/macos/build-dmg.sh
+      - name: Verify mounted disk image launches
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MOTH_DATA_DIR: ${{ runner.temp }}/moth-dmg-smoke
+        run: |
+          mount="$RUNNER_TEMP/moth-mounted"
+          mkdir -p "$mount"
+          hdiutil attach release/*.dmg -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          test -L "$mount/Applications"
+          "$mount/Moth.app/Contents/MacOS/Moth" --smoke-test
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Moth-macOS-${{ matrix.arch }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: Moth-*
+          path: release
+          merge-multiple: true
+      - name: Publish tested preview installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          cat > /tmp/moth-release-notes.md <<'NOTES'
+          Native Moth desktop installers, built and smoke-tested on Windows and macOS.
+
+          - Windows x64: download `Windows-x64-Setup.exe`, run Setup, then launch Moth from Start.
+          - macOS 15+: choose `macOS-arm64.dmg` for Apple Silicon or `macOS-x86_64.dmg` for Intel, open it and drag Moth to Applications.
+          - Python and Qt are included. Optional scanners can require separate prerequisites.
+          - These preview installers do not have a Windows publisher certificate or Apple Developer ID/notarization. Operating-system trust prompts may appear. Check the source and the SHA-256 checksums before approving a trusted download.
+          - Close Moth before upgrading. User data is retained outside the application folder.
+          NOTES
+          gh release create "installers-$RUN_ID" release/* --target "$COMMIT" --prerelease --title 'Moth desktop installers (preview)' --notes-file /tmp/moth-release-notes.md

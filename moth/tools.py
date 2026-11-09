@@ -45,8 +45,14 @@ def python_runtime():
     candidates = []
     for name in (("py", "python", "python3") if os.name == "nt" else ("python3", "python")):
         path = shutil.which(name)
+        if sys.platform == "darwin" and path == "/usr/bin/python3":
+            continue  # Apple developer-tool shim is not an external Python 3.11+ runtime.
         if path and "windowsapps" not in path.lower() and Path(path).resolve() != Path(sys.executable).resolve():
             candidates.append([path, "-3"] if name == "py" else [path])
+    if sys.platform == "darwin":
+        for path in ("/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/opt/local/bin/python3"):
+            if Path(path).is_file():
+                candidates.append([path])
     for candidate in candidates:
         try:
             result = subprocess.run(candidate + ["-I", "-c", "import sys,venv; assert sys.version_info >= (3,11)"],
@@ -69,7 +75,7 @@ def python_bin(folder):
 def executable_candidates(*names):
     """PATH plus common user locations omitted by desktop-session PATHs."""
     folders = [Path.home() / ".local/bin", Path.home() / "go/bin", Path.home() / ".npm-global/bin",
-               Path.home() / ".local/share/pnpm", Path("/usr/local/bin"), Path("/usr/bin")]
+               Path.home() / ".local/share/pnpm", Path("/usr/local/bin"), Path("/usr/bin"), Path("/opt/homebrew/bin"), Path("/opt/local/bin")]
     for entry in os.environ.get("GOPATH", "").split(os.pathsep):
         if entry:
             folders.append(Path(entry) / "bin")
@@ -108,7 +114,8 @@ def native_zap_command():
     # Arch's /usr/bin/zaproxy wrapper may discard arguments. Prefer the real script.
     if os.name != "nt":
         roots = [Path("/usr/share/zaproxy"), Path("/usr/share/zap"), Path("/opt/zaproxy"),
-                 Path("/opt/ZAP"), Path("/Applications/ZAP.app/Contents/Java")]
+                 Path("/opt/ZAP"), Path("/Applications/ZAP.app/Contents/Java"),
+                 Path.home() / "Applications/ZAP.app/Contents/Java"]
         for root in roots:
             script = root / "zap.sh"
             if script.is_file() and os.access(script, os.X_OK):
@@ -186,7 +193,7 @@ def command(tool):
                 return [str(system)]
         node = node_command()
         if node:
-            roots = [Path("/usr/lib/node_modules"), Path("/usr/local/lib/node_modules"),
+            roots = [Path("/usr/lib/node_modules"), Path("/usr/local/lib/node_modules"), Path("/opt/homebrew/lib/node_modules"),
                      Path.home() / ".npm-global/lib/node_modules", Path(os.environ.get("APPDATA", str(Path.home()))) / "npm/node_modules"]
             for root in roots:
                 script = retire_entry(root / "retire")
@@ -357,8 +364,8 @@ def run_install(args, timeout=600):
 
 def node_command():
     managed = TOOLS / "node" / ("node.exe" if os.name == "nt" else "bin/node")
-    system = shutil.which("node")
-    return [str(managed)] if managed.exists() and (TOOLS / "node/ready.json").exists() else ([system] if system else None)
+    system = next(executable_candidates("node"), None)
+    return [str(managed)] if managed.exists() and (TOOLS / "node/ready.json").exists() else ([str(system)] if system else None)
 
 
 def install_node():

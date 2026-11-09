@@ -56,3 +56,6 @@ node_modules/
 *.bak
 *.swp
 *~
+
+# Generated desktop installers and disk images.
+/release/
