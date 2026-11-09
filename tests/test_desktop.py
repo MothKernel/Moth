@@ -413,3 +413,25 @@ def test_grouped_sources_filter_and_priority_summary(window):
     assert 'rule 10038' in window.explanation.toPlainText()
     assert 'Content-Security-Policy' in window.priority_summary.toPlainText()
     assert window.recheck_button.isEnabled()
+
+
+def test_missing_zap_dependencies_are_recommended_without_installing(window, monkeypatch):
+    from moth import system_install, tools
+    from PySide6.QtWidgets import QMessageBox, QPushButton
+    calls=[]
+    monkeypatch.setattr(system_install,'missing_requirements',lambda tool:['docker'])
+    monkeypatch.setattr(QMessageBox,'information',lambda *args:calls.append(args[-1]))
+    monkeypatch.setattr(tools,'start_install',lambda *args,**kwargs:pytest.fail('No automatic dependency install'))
+    window.install_tool('zap')
+    assert len(calls)==1 and 'Docker' in calls[0] and 'Requirements' in calls[0]
+    assert window.findChild(QPushButton,'install_docker') is not None
+    assert window.findChild(QPushButton,'install_nmap') is not None
+
+
+def test_dependency_button_installs_only_chosen_program(window, monkeypatch):
+    from moth import system_install, tools
+    calls=[]
+    monkeypatch.setattr(system_install,'missing_requirements',lambda tool:[])
+    monkeypatch.setattr(tools,'start_install',lambda tool:calls.append(tool))
+    window.install_tool('docker')
+    assert calls==['docker']

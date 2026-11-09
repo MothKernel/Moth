@@ -85,7 +85,7 @@ QStatusBar { background: #eaf0e3; color: #718267; }
 QComboBox QAbstractItemView { background: white; color: #203c32; selection-background-color: #dcebbf; selection-color: #203c32; }
 QLabel#toolStatus { padding: 5px 10px; border-radius: 5px; font-weight: 600; }
 QLabel#toolStatus[state="ready"] { color: #166534; background: #dcfce7; }
-QLabel#toolStatus[state="missing"], QLabel#toolStatus[state="manual"], QLabel#toolStatus[state="prerequisite"] { color: #92400e; background: #fef3c7; }
+QLabel#toolStatus[state="missing"], QLabel#toolStatus[state="manual"], QLabel#toolStatus[state="prerequisite"], QLabel#toolStatus[state="action_required"] { color: #92400e; background: #fef3c7; }
 QLabel#toolStatus[state="installing"], QLabel#toolStatus[state="queued"] { color: #1e40af; background: #dbeafe; }
 QLabel#toolStatus[state="available"] { color: #92400e; background: #fef3c7; }
 QLabel#toolStatus[state="error"] { color: #991b1b; background: #fee2e2; }
@@ -158,6 +158,7 @@ def clear_layout(layout):
     while layout.count():
         item = layout.takeAt(0)
         if item.widget():
+            item.widget().hide()
             item.widget().deleteLater()
         elif item.layout():
             clear_layout(item.layout())
@@ -572,10 +573,21 @@ class MainWindow(WorkflowUI, QMainWindow):
         row.addWidget(self.button("check_updates", lambda: self.check_updates(force=True)))
         row.addWidget(self.button("refresh", self.refresh_prerequisites))
         layout.addLayout(row)
+        container = QWidget()
+        sections = QVBoxLayout(container)
+        sections.addWidget(self.label("requirements", "section"))
+        sections.addWidget(self.label("requirements_hint", "muted"))
+        dependencies = QWidget()
+        self.dependencies_layout = QGridLayout(dependencies)
+        self.dependencies_layout.setContentsMargins(0, 0, 0, 0)
+        sections.addWidget(dependencies)
+        sections.addWidget(self.label("tools", "section"))
         holder = QWidget()
         self.tools_layout = QGridLayout(holder)
         self.tools_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroller(holder), 1)
+        sections.addWidget(holder)
+        self.tools_scroll = scroller(container)
+        layout.addWidget(self.tools_scroll, 1)
         return page
 
     def _history_page(self):
@@ -1004,12 +1016,15 @@ class MainWindow(WorkflowUI, QMainWindow):
         self.error_details.setPlainText(error["tool"] + " · " + title + "\n\n" + self.tr_text("what_it_means") + "\n" + explanation + "\n\n" + self.tr_text("recommendation") + "\n" + action + "\n\n" + self.tr_text("original_error") + "\n" + error["message"])
 
     def refresh_tools(self, force=False):
+        from . import system_install
         rows = tools.catalog()
-        signature = json.dumps(rows, ensure_ascii=False) + self.language + str(bool(self.running()))
+        dependencies = system_install.dependency_catalog()
+        signature = json.dumps([rows, dependencies], ensure_ascii=False) + self.language + str(bool(self.running()))
         if not force and signature == self._last_tools:
             return
         self._last_tools = signature
         self.tool_rows = rows
+        self.render_dependencies(dependencies)
         clear_layout(self.tools_layout)
         for index, row in enumerate(rows):
             card = QGroupBox(row["name"])
@@ -1032,9 +1047,14 @@ class MainWindow(WorkflowUI, QMainWindow):
             if row["status"] == "prerequisite" and row["id"] == "zap":
                 message = self.tr_text("zap_requirement")
             if row["id"] == "nmap" and row["status"] != "ready":
-                message = self.tr_text("nmap_requirement")
+                if row["status"] == "missing":
+                    message = self.tr_text("nmap_requirement")
+            if row.get("message_key"):
+                message = self.tr_text(row["message_key"])
             if message:
                 content.addWidget(text_label(message[-900:], "muted"))
+            if row["id"] in ("zap", "nmap") and row["status"] != "ready":
+                content.addWidget(text_label(self.tr_text("setup_" + row["id"] + "_note"), "muted"))
             if row.get("version"):
                 content.addWidget(text_label(row["version"][:70], "muted"))
             update_status = row.get("update_status")
@@ -1061,11 +1081,11 @@ class MainWindow(WorkflowUI, QMainWindow):
                 update_button.setEnabled(not self.running())
                 update_button.clicked.connect(lambda checked=False, tool=row["id"], managed=managed: self.update_tool(tool, managed))
                 buttons.addWidget(update_button)
-            elif row["id"] != "nmap":
-                key = "ready" if row["status"] == "ready" else "installing" if row["status"] == "installing" else "queued" if row["status"] == "queued" else "retry" if row["status"] == "error" else "install"
+            else:
+                key = "ready" if row["status"] == "ready" else "installing" if row["status"] == "installing" else "queued" if row["status"] == "queued" else "setup_continue" if row["status"] == "action_required" else "retry" if row["status"] == "error" else "install"
                 install = QPushButton(self.tr_text(key))
                 install.setObjectName("install_" + row["id"])
-                install.setEnabled(row["status"] not in ("ready", "installing", "queued", "prerequisite") and not self.running())
+                install.setEnabled(row["status"] not in ("ready", "installing", "queued") and not self.running())
                 install.clicked.connect(lambda checked=False, tool=row["id"]: self.install_tool(tool))
                 buttons.addWidget(install)
             official = QPushButton(self.tr_text("upstream"))
@@ -1083,11 +1103,50 @@ class MainWindow(WorkflowUI, QMainWindow):
 
     def install_tool(self, identifier):
         try:
+            from .system_install import missing_requirements
+            missing = missing_requirements(identifier)
+            if missing:
+                names = ", ".join(tools.metadata(name)["name"] for name in missing)
+                QMessageBox.information(self, self.tr_text("requirements"), self.tr_text("missing_requirements").format(tool=tools.metadata(identifier)["name"], names=names))
+                self.tools_scroll.verticalScrollBar().setValue(0)
+                return
             tools.start_install(identifier)
             self.show_notice("")
             self.refresh_tools(force=True)
         except Exception as exc:
             self.show_notice(str(exc))
+
+    def render_dependencies(self, rows):
+        clear_layout(self.dependencies_layout)
+        for index, row in enumerate(rows):
+            card = QGroupBox(row["name"])
+            layout = QVBoxLayout(card)
+            badge = text_label(self.tr_text(row["status"]), "toolStatus")
+            badge.setProperty("state", row["status"])
+            badge.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignLeft)
+            layout.addWidget(text_label(self.tr_text("dependency_" + row["id"]), "muted"))
+            if row["id"] == "docker" and sys.platform.startswith("linux"):
+                layout.addWidget(text_label(self.tr_text("docker_group_note"), "muted"))
+            message = self.tr_text(row["message_key"]) if row.get("message_key") else row.get("message", "")
+            if row["status"] == "queued":
+                message = self.tr_text("queue_position").format(position=row["queue_position"])
+            if message:
+                detail = text_label(message, "muted")
+                detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                layout.addWidget(detail)
+            buttons = QHBoxLayout()
+            key = "setup_continue" if row["status"] == "action_required" else "retry" if row["status"] == "error" else row["status"] if row["status"] in ("ready", "installing", "queued") else "install"
+            install = QPushButton(self.tr_text(key))
+            install.setObjectName("install_" + row["id"])
+            install.setEnabled(row["status"] not in ("ready", "installing", "queued") and not self.running())
+            install.clicked.connect(lambda checked=False, tool=row["id"]: self.install_tool(tool))
+            buttons.addWidget(install)
+            official = QPushButton(self.tr_text("upstream"))
+            official.clicked.connect(lambda checked=False, url=row["url"]: QDesktopServices.openUrl(QUrl(url)))
+            buttons.addWidget(official)
+            layout.addLayout(buttons)
+            self.dependencies_layout.addWidget(card, index // 2, index % 2)
 
     def check_updates(self, force=False):
         updates.request_check(tools.catalog(), force=force)
@@ -1107,6 +1166,8 @@ class MainWindow(WorkflowUI, QMainWindow):
             self.show_notice(str(exc))
 
     def refresh_prerequisites(self):
+        from .system_install import clear_detection
+        clear_detection()
         tools._is_pd_httpx.cache_clear()
         if hasattr(tools.catalog, "python_available"):
             del tools.catalog.python_available

@@ -139,7 +139,7 @@ You can also double-click `start.bat` inside the downloaded project. It creates 
 
 ### First assessment
 
-1. Open **Tools**, click **Refresh detection** and install the optional tools you need. Start with built-in checks if you do not need external scanners yet.
+1. Open **Tools**, click **Refresh detection** and install the optional tools you need. Missing programs are recommended before installation: use the individual **Requirements** cards for Docker, Python, Node.js and (on Windows) WSL 2, then retry the tool. Start with built-in checks if you do not need external scanners yet.
 2. Return to **Assessment**, enter your website URL and choose **Low** for the first assessment.
 3. Open **Scope & session** if you need excluded paths, custom TCP ports, rate settings or authentication. Session setup and compatibility limits are described below.
 4. Select additional tools and click **Check prerequisites**. Review **Diagnostics**; if High/Ultra needs Nuclei templates, use **Prepare official Nuclei templates**, then check again.
@@ -148,6 +148,22 @@ You can also double-click `start.bat` inside the downloaded project. It creates 
 7. Review **Findings**, **Errors**, **Checks & coverage**, **ZAP Spider**, **Priorities** and **Compare scans**. Select a finding and use **Recheck selected finding** after applying a fix. Export HTML/JSON through the report buttons.
 
 High/Ultra include active checks. By default, Ultra asks Nmap to scan all 65,535 TCP ports with a maximum configured port-probe rate of 50/second, followed by service and selected script checks. Custom ports/rates can be set in **Scope & session**. This can take substantially longer than a website-port check; time estimates are approximate and phase percentages are not overall assessment percentages.
+
+### Installing tool requirements
+
+Each scanner and requirement has its own **Install** button; Moth does not install every tool together. Clicking ZAP without Docker shows a recommendation and returns you to **Requirements**, without downloading Docker automatically. On Windows, Docker also requires WSL 2. Install each missing requirement from its card, then click **Install** on ZAP again. Existing native ZAP installations are reused without Docker.
+
+| Requirement/tool | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Docker for ZAP | Official, SHA-256-verified Docker Desktop installer | Verified official Docker DMG and macOS trust assessment | Distribution Docker package, systemd service startup |
+| WSL 2 | Windows WSL install/update dialogs | Not needed | Not needed |
+| Python for SSLyze/WAFW00F | WinGet; signed official Python installer as fallback | Homebrew; signed official Python installer as fallback | Distribution Python package; venv support on Debian/Ubuntu |
+| Node.js for Retire.js | Verified official managed runtime | Verified official managed runtime | Verified official managed runtime |
+| Nmap | Verified official installer, including its Npcap prompts | Homebrew if present, otherwise verified official DMG installer | Distribution Nmap package |
+
+Linux automatic system installation supports Arch/Manjaro, Debian/Ubuntu, Fedora and openSUSE with their native package managers and a running Polkit authentication agent (`pkexec`). It does not add third-party repositories, run a full OS upgrade or remove conflicting packages. Other platforms/distributions receive instructions and an official download link. The official macOS Nmap DMG may require Rosetta on Apple Silicon; Homebrew is preferred when available.
+
+Native installers retain their own license and administrator dialogs. Moth never collects administrator passwords or disables antivirus protection. Docker Desktop may require accepting its terms, enabling hardware virtualization, installing WSL or restarting the computer; these are shown as **Action required**, not successful installation. On Linux, Docker setup can add the current account to the `docker` group, which grants root-level Docker access; sign out and back in when prompted. Click **Continue setup** after completing the requested action. Docker must report a working **Linux** engine before Moth pulls ZAP. Installations remain in the existing sequential queue, and a failure does not block later items.
 
 ### Updating an existing source installation
 
@@ -263,7 +279,7 @@ Moth checks the system PATH and common desktop/user installation locations, incl
 | Subfinder | Official release, SHA-256 checked | Passive discovery; discovered hosts are not scanned |
 | Nmap | Official installation detected | TCP connect to the selected web port on one resolved address |
 
-The table describes Low; the scan-level table above defines expanded scope. An existing native ZAP installation is used directly without Docker. On Arch, Moth uses `/usr/share/zaproxy/zap.sh` because the distribution launcher can discard command-line arguments. Docker Desktop/Engine is required only for the optional Docker-based ZAP installation. Nmap uses an official, separate installation due to redistribution restrictions. SSLyze and WAFW00F need a separate Python 3.11+ installation when using the packaged executable; the UI identifies that prerequisite. Installing system drivers, Docker or Python is not performed silently. Tools install under Moth's user data directory, without administrator privileges.
+The table describes Low; the scan-level table above defines expanded scope. An existing native ZAP installation is used directly without Docker. On Arch, Moth uses `/usr/share/zaproxy/zap.sh` because the distribution launcher can discard command-line arguments. Docker Desktop/Engine is required only for the optional Docker-based ZAP installation. Nmap uses an official, separate installation rather than being redistributed inside Moth. SSLyze and WAFW00F need a separate Python 3.11+ installation when using the packaged executable. The Requirements cards offer individual installation of missing runtimes. Managed scanner binaries install under Moth's user data directory; system packages, Docker, Python and drivers can require native administrator/license prompts.
 
 Installations need internet access. Some tool databases and passive discovery sources also use external services. Missing platform builds, upstream API limits or runtime incompatibilities are shown as installation errors with a retry option. Not all external installers have been exercised on Windows yet.
 

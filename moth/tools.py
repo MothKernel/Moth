@@ -53,6 +53,13 @@ def python_runtime():
         for path in ("/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/opt/local/bin/python3"):
             if Path(path).is_file():
                 candidates.append([path])
+    if os.name == "nt":
+        for version in ("313", "314", "312", "311"):
+            for root in (Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/Python",
+                         Path(os.environ.get("ProgramFiles", "C:/Program Files"))):
+                path = root / ("Python" + version) / "python.exe"
+                if path.is_file():
+                    candidates.append([str(path)])
     for candidate in candidates:
         try:
             result = subprocess.run(candidate + ["-I", "-c", "import sys,venv; assert sys.version_info >= (3,11)"],
@@ -65,7 +72,8 @@ def python_runtime():
 
 
 def metadata(tool):
-    return next((t for t in REGISTRY if t["id"] == tool), None)
+    from .system_install import DEPENDENCIES
+    return next((t for t in REGISTRY + DEPENDENCIES if t["id"] == tool), None)
 
 
 def python_bin(folder):
@@ -163,6 +171,9 @@ def retire_entry(folder):
 
 
 def command(tool):
+    if tool in ("docker", "python", "node", "wsl"):
+        from .system_install import dependency_command
+        return dependency_command(tool)
     folder = TOOLS / tool
     if tool in PD:
         aliases = ("httpx-toolkit", "httpx-pd", "httpx") if tool == "httpx" else (tool,)
@@ -206,7 +217,8 @@ def command(tool):
         if native:
             return native
         marker = folder / "ready.json"
-        docker = shutil.which("docker")
+        from .system_install import docker_command
+        docker = docker_command()
         if docker and marker.exists():
             return [docker, json.loads(marker.read_text(encoding="utf-8"))["image"]]
         return None
@@ -249,18 +261,14 @@ def catalog():
                 version = details.get("version", details.get("image", ""))
             except (OSError, ValueError):
                 pass
-        row = dict(tool, status="ready" if ready else "missing", version=version, message="", automatic=identifier != "nmap",
+        row = dict(tool, status="ready" if ready else "missing", version=version, message="", automatic=True,
                    source=source, location=" ".join(cmd) if cmd else "")
         row.update(state.get(identifier, {}))
         row["queue_position"] = positions.get(identifier)
         if not ready and row["status"] == "ready":
             row.update(status="error", message="Installation was recorded, but the executable or required runtime could not be found. Retry installation.")
-        if ready and row["status"] not in ("installing", "queued"):
+        if ready and row["status"] not in ("installing", "queued", "action_required"):
             row.update(status="ready", message=row["message"] if row.get("update_failed") else "")
-        if identifier == "zap" and not ready and not shutil.which("docker"):
-            row.update(status="prerequisite", message="Install and start Docker Desktop/Engine first.")
-        if identifier == "nmap" and not ready:
-            row.update(status="manual", message="Use the official installer; redistribution requires a license review.")
         if identifier in ("sslyze", "wafw00f") and not ready and getattr(sys, "frozen", False):
             # Cache the bounded runtime probe; do not spawn processes on every UI refresh.
             if not hasattr(catalog, "python_available"):
@@ -302,8 +310,8 @@ def remote_json(url):
 def verify_checksum(archive, checksum_file):
     expected = None
     for line in checksum_file.read_text(encoding="utf-8").splitlines():
-        fields = line.split()
-        if len(fields) >= 2 and fields[-1].lstrip("*") == archive.name:
+        fields = line.split(maxsplit=1)
+        if len(fields) == 2 and fields[1].lstrip("*") == archive.name:
             expected = fields[0].lower()
     with archive.open("rb") as source:
         actual = hashlib.file_digest(source, "sha256").hexdigest()
@@ -346,7 +354,7 @@ def install_pd(tool, folder):
     (folder / "ready.json").write_text(json.dumps({"version": release["tag_name"], "source": asset["browser_download_url"]}))
 
 
-def run_install(args, timeout=600):
+def run_install(args, timeout=600, acceptable_codes=(0,)):
     """Installer output stays local, bounded on read; no shell interpolation."""
     with tempfile.TemporaryFile() as log:
         process = subprocess.Popen(args, stdout=log, stderr=log, stdin=subprocess.DEVNULL, env=external_environment(), creationflags=no_console_flags())
@@ -356,10 +364,11 @@ def run_install(args, timeout=600):
             process.kill()
             process.wait()
             raise ValueError("Installation timed out.")
-        if code:
+        if code not in acceptable_codes:
             log.seek(0, 2)
             log.seek(max(0, log.tell() - 2500))
             raise ValueError(log.read().decode("utf-8", "replace"))
+        return code
 
 
 def node_command():
@@ -420,7 +429,10 @@ def install(tool):
     folder = TOOLS / tool
     folder.mkdir(exist_ok=True)
     try:
-        if tool in PD:
+        if tool in ("docker", "python", "node", "wsl"):
+            from .system_install import install_dependency
+            install_dependency(tool)
+        elif tool in PD:
             install_pd(tool, folder)
         elif tool in ("sslyze", "wafw00f"):
             env = folder / "venv"
@@ -433,8 +445,9 @@ def install(tool):
             version = subprocess.check_output([str(python_bin(env)), "-c", "import importlib.metadata, sys; print(importlib.metadata.version(sys.argv[1]))", tool], timeout=20, text=True, env=external_environment()).strip()
             (folder / "ready.json").write_text(json.dumps({"source": "PyPI", "package": tool, "version": version}))
         elif tool == "retire":
-            install_node()
             node = node_command()
+            if not node:
+                raise ValueError("Install Node.js from the Requirements section first.")
             root = Path(node[0]).parent
             possible = [root / "node_modules/npm/bin/npm-cli.js", root.parent / "lib/node_modules/npm/bin/npm-cli.js",
                         Path("/usr/share/nodejs/npm/bin/npm-cli.js"), Path("/usr/lib/node_modules/npm/bin/npm-cli.js")]
@@ -449,22 +462,28 @@ def install(tool):
             version = json.loads((folder / "node_modules/retire/package.json").read_text(encoding="utf-8"))["version"]
             (folder / "ready.json").write_text(json.dumps({"source": "npm", "package": "retire", "version": version}))
         elif tool == "zap":
-            docker = shutil.which("docker")
-            if not docker:
-                raise ValueError("Docker Desktop/Engine must be installed and running first.")
+            from .system_install import ensure_docker, progress
+            docker = ensure_docker()
+            progress(tool, "setup_zap_pull")
             image = "ghcr.io/zaproxy/zaproxy:stable"
             run_install([docker, "pull", image], timeout=1200)
             digest = subprocess.check_output([docker, "image", "inspect", image, "--format", "{{index .RepoDigests 0}}"], timeout=20, text=True, env=external_environment()).strip()
             if not digest.startswith("ghcr.io/zaproxy/zaproxy@sha256:"):
                 raise ValueError("Could not pin the ZAP container image digest.")
             (folder / "ready.json").write_text(json.dumps({"image": digest}))
+        elif tool == "nmap":
+            from .system_install import install_nmap
+            install_nmap()
         else:
-            raise ValueError("Use the official Nmap installer.")
+            raise ValueError("Unknown tool.")
         with LOCK:
             STATE[tool] = dict(status="ready", message="Installation completed.")
     except Exception as exc:
+        from .system_install import ActionRequired
         with LOCK:
-            STATE[tool] = dict(status="error", message=str(exc)[-2500:])
+            STATE[tool] = dict(status="action_required" if isinstance(exc, ActionRequired) else "error",
+                               message_key=exc.key if isinstance(exc, ActionRequired) else "",
+                               message="" if isinstance(exc, ActionRequired) else str(exc)[-2500:])
 
 
 def _process_install_queue():
@@ -479,13 +498,13 @@ def _process_install_queue():
             STATE[tool] = dict(status="installing", operation="update" if updating else "install", message="Downloading and preparing dependencies…")
         try:
             # Detection may change while a tool waits in the queue.
-            if command(tool) and not updating:
+            if command(tool) and not updating and tool not in ("docker", "zap"):
                 with LOCK:
                     STATE[tool] = dict(status="ready", message="")
             else:
                 install(tool)
             with LOCK:
-                failed = STATE[tool]["status"] == "error"
+                failed = STATE[tool]["status"] != "ready"
                 if failed and updating:
                     STATE[tool]["update_failed"] = True
             if not failed:
@@ -501,10 +520,12 @@ def start_install(tool, update=False):
     global INSTALL_WORKER
     if not metadata(tool):
         raise ValueError("Unknown tool.")
-    if tool == "nmap":
-        raise ValueError("Install Nmap from its official website, then refresh detection.")
+    from .system_install import missing_requirements
+    missing = missing_requirements(tool)
+    if missing:
+        raise ValueError("Install the required programs first: " + ", ".join(metadata(name)["name"] for name in missing))
     cmd = command(tool)
-    if cmd and not update:
+    if cmd and not update and tool != "docker" and STATE.get(tool, {}).get("status") != "action_required":
         return
     if update and (not cmd or installation_source(tool, cmd) not in ("moth", "docker")):
         raise ValueError("Update this installation through its package manager or official installer.")
