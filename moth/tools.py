@@ -50,7 +50,11 @@ def python_runtime():
         if path and "windowsapps" not in path.lower() and Path(path).resolve() != Path(sys.executable).resolve():
             candidates.append([path, "-3"] if name == "py" else [path])
     if sys.platform == "darwin":
-        for path in ("/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/opt/local/bin/python3"):
+        paths = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/opt/local/bin/python3"]
+        for version in ("3.13", "3.14", "3.12", "3.11"):
+            paths += [f"/opt/homebrew/bin/python{version}", f"/usr/local/bin/python{version}",
+                      f"/Library/Frameworks/Python.framework/Versions/{version}/bin/python{version}"]
+        for path in paths:
             if Path(path).is_file():
                 candidates.append([path])
     if os.name == "nt":
