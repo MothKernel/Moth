@@ -41,6 +41,6 @@ def test_versioned_homebrew_python_is_detected_after_install(monkeypatch):
     monkeypatch.setattr(sys,'frozen',True,raising=False)
     monkeypatch.setattr(sys,'platform','darwin')
     monkeypatch.setattr(tools.shutil,'which',lambda name:None)
-    monkeypatch.setattr(Path,'is_file',lambda path:str(path)=='/opt/homebrew/bin/python3.13')
+    monkeypatch.setattr(Path,'is_file',lambda path:path.as_posix()=='/opt/homebrew/bin/python3.13')
     monkeypatch.setattr(tools.subprocess,'run',lambda *args,**kwargs:subprocess.CompletedProcess(args,0))
     assert tools.python_runtime()==['/opt/homebrew/bin/python3.13']
