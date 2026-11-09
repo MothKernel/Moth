@@ -32,11 +32,11 @@ These preview downloads include Python and Qt for Moth. Optional scanners are ma
 
 | Platform | Direct download | Install |
 | --- | --- | --- |
-| Windows 10/11 x64 | [Windows Setup (.exe)](https://github.com/MothKernel/Moth/releases/download/windows-aef5cc6/Moth-0.2.0-Windows-x64-Setup.exe) | Run Setup, then open Moth from Start |
+| Windows 10/11 x64 | [Windows Setup (.exe)](https://github.com/MothKernel/Moth/releases/download/v0.2.1-windows-preview/Moth-0.2.1-Windows-x64-Setup.exe) | Run Setup, then open Moth from Start |
 | macOS 15+, Apple Silicon | [Mac M-series (.dmg)](https://github.com/MothKernel/Moth/releases/download/installers-42598956491/Moth-0.2.0-macOS-arm64.dmg) | Drag Moth into Applications |
 | macOS 15+, Intel | [Mac Intel (.dmg)](https://github.com/MothKernel/Moth/releases/download/installers-42598956491/Moth-0.2.0-macOS-x86_64.dmg) | Drag Moth into Applications |
 
-[Windows release notes and SHA-256 checksum](https://github.com/MothKernel/Moth/releases/tag/windows-aef5cc6) · [macOS release notes and checksums](https://github.com/MothKernel/Moth/releases/tag/installers-42598956491). The updated Windows preview includes separate **Requirements** cards and the Nmap **Install** button. The macOS links currently point to the earlier preview while the Apple Silicon build waits for a GitHub runner. Preview packages do not yet have Windows publisher signing or Apple Developer ID/notarization; see the platform instructions for trust prompts.
+[Windows release notes and SHA-256 checksum](https://github.com/MothKernel/Moth/releases/tag/v0.2.1-windows-preview) · [macOS release notes and checksums](https://github.com/MothKernel/Moth/releases/tag/installers-42598956491). The Windows **0.2.1** preview includes separate **Requirements** cards, the Nmap **Install** button, corrected Nmap prerequisite detection, ZAP image repair and Diagnostics in HTML reports. The macOS links currently point to the earlier preview while the Apple Silicon build waits for a GitHub runner. Preview packages do not yet have Windows publisher signing or Apple Developer ID/notarization; see the platform instructions for trust prompts.
 
 ### Arch Linux
 
