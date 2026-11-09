@@ -170,9 +170,9 @@ class MainWindow(WorkflowUI, QMainWindow):
         self.language = self.settings.value("language", "en")
         if self.language not in TRANSLATIONS:
             self.language = "en"
-        self.theme = self.settings.value("theme", "light")
+        self.theme = self.settings.value("theme", "dark")
         if self.theme not in ("light", "dark"):
-            self.theme = "light"
+            self.theme = "dark"
         self.tip_deck = TipDeck()
         self.current_tip = None
         self._tips_scan_id = None

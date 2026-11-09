@@ -54,6 +54,22 @@ def test_native_window_language_and_navigation(window, qapp):
     assert window.pages.currentIndex() == 2
 
 
+@pytest.mark.parametrize("saved, expected", [(None, "dark"), ("invalid", "dark"), ("light", "light"), ("dark", "dark")])
+def test_theme_default_and_saved_preference(qapp, tmp_path, saved, expected):
+    settings = QSettings(str(tmp_path / "theme.ini"), QSettings.Format.IniFormat)
+    if saved is not None:
+        settings.setValue("theme", saved)
+    window = MainWindow(settings)
+    try:
+        assert window.theme == expected
+        assert window.theme_box.currentData() == expected
+        selected = "light" if expected == "dark" else "dark"
+        window.theme_box.setCurrentIndex(window.theme_box.findData(selected))
+        assert settings.value("theme") == selected
+    finally:
+        window.close()
+
+
 def test_native_scan_and_exports(window, qapp, monkeypatch, tmp_path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):

@@ -4,9 +4,9 @@ Moth is a native desktop website security assessment program with optional scann
 
 **Version 0.2 — native Qt/PySide6 desktop application.** Moth opens its own window with native widgets, without a browser interface, Electron shell or embedded web view. English is the default language; Romanian and Russian are available from the language selector. ZAP uses an internal loopback control API when its integration is selected.
 
-![Moth desktop application](docs/moth-interface.png)
+![Moth desktop application in the default dark theme](docs/moth-interface.png)
 
-*Current desktop interface with demonstration findings for example.com; no live assessment is shown.*
+*Current desktop interface in dark mode with demonstration findings for example.com; no live assessment is shown. Dark is the default theme; Light is available from the theme selector, and your choice is remembered.*
 
 ## Current capabilities
 
