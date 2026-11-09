@@ -26,6 +26,18 @@ Moth is a native desktop website security assessment program with optional scann
 
 Moth is a desktop application for Linux, Windows and macOS. Source installs require **Python 3.11 or newer**, Git and an internet connection for the first launch. Optional security tools are installed separately from the **Tools** page; you can start with the built-in checks alone.
 
+### Download desktop installers
+
+These preview downloads include Python and Qt for Moth. Optional scanners are managed separately in the app.
+
+| Platform | Direct download | Install |
+| --- | --- | --- |
+| Windows 10/11 x64 | [Windows Setup (.exe)](https://github.com/MothKernel/Moth/releases/download/installers-42598956491/Moth-0.2.0-Windows-x64-Setup.exe) | Run Setup, then open Moth from Start |
+| macOS 15+, Apple Silicon | [Mac M-series (.dmg)](https://github.com/MothKernel/Moth/releases/download/installers-42598956491/Moth-0.2.0-macOS-arm64.dmg) | Drag Moth into Applications |
+| macOS 15+, Intel | [Mac Intel (.dmg)](https://github.com/MothKernel/Moth/releases/download/installers-42598956491/Moth-0.2.0-macOS-x86_64.dmg) | Drag Moth into Applications |
+
+[Release notes and SHA-256 checksums](https://github.com/MothKernel/Moth/releases/tag/installers-42598956491). Preview packages do not yet have Windows publisher signing or Apple Developer ID/notarization; see the platform instructions for trust prompts.
+
 ### Arch Linux
 
 Install Python, Git and [Arch's PySide6 package](https://archlinux.org/packages/extra/x86_64/pyside6/):
