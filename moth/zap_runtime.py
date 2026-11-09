@@ -1,4 +1,5 @@
 """Isolated ZAP daemon: observe real automation/spider state before cleanup."""
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -103,6 +104,7 @@ def run(cmd, target, directory, plan, cancel, progress=None):
     directory.mkdir(parents=True, exist_ok=True)
     plan_path = directory / 'plan.yaml'
     plan_path.write_text(json.dumps(plan), encoding='utf-8')
+    plan_path.chmod(0o600)
     container = 'moth-' + hashlib.sha256(str(directory).encode()).hexdigest()[:20]
     home = directory / 'home'
     home.mkdir(exist_ok=True)
@@ -125,6 +127,8 @@ def run(cmd, target, directory, plan, cancel, progress=None):
     process = None
     started_api = False
     completed_headers = False
+    last_metrics = None
+    last_activity = None
     kwargs = {'start_new_session': True} if os.name != 'nt' else {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | no_console_flags()}
     with (directory / 'stdout.log').open('wb') as log:
         try:
@@ -170,7 +174,25 @@ def run(cmd, target, directory, plan, cancel, progress=None):
                                 completed_headers = True
                     except (OSError, ValueError, KeyError):
                         spider['status'] = 'unavailable'
-                details = dict(phase=phase_from_progress(data), spider=spider)
+                details = dict(phase=phase_from_progress(data), spider=spider, warnings=data.get('warn', []))
+                details['percent'] = None
+                try:
+                    if details['phase'] == 'activeScan':
+                        scans = client.call('ascan', 'view', 'scans').get('scans', [])
+                        if scans:
+                            active = scans[-1]
+                            details.update(percent=float(active['progress']), requests=int(active.get('reqCount', 0)), alerts=int(active.get('alertCount', 0)))
+                    elif details['phase'] == 'spider':
+                        details['percent'] = spider.get('progress')
+                    elif details['phase'] == 'passiveScan-wait':
+                        details['queued_records'] = int(client.call('pscan', 'view', 'recordsToScan')['recordsToScan'])
+                except (OSError, ValueError, KeyError):
+                    pass
+                metrics = (details['phase'], details.get('percent'), details.get('requests'), details.get('queued_records'), spider.get('visited_urls'))
+                if metrics != last_metrics:
+                    last_activity = datetime.now(timezone.utc).isoformat()
+                    last_metrics = metrics
+                details['last_activity'] = last_activity
                 progress(details)
                 if data.get('finished'):
                     if data.get('error'):

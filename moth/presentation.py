@@ -156,12 +156,12 @@ def finding_sort_keys(scan, mode, language='en'):
         elif mode == 'severity_asc':
             value = 4-level if level is not None else 5
         elif mode == 'completion_newest':
-            value = -ranks.get(finding['tool'], -1)
+            value = -max((ranks.get(tool, -1) for tool in finding.get('source_tools', [finding['tool']])), default=-1)
         elif mode == 'tool_az':
             value = finding['tool'].casefold()
         elif mode == 'title_az':
             value = describe(finding, language)[0].casefold()
         else:
-            value = ranks.get(finding['tool'], len(steps))
+            value = min((ranks.get(tool, len(steps)) for tool in finding.get('source_tools', [finding['tool']])), default=len(steps))
         keys[finding['id']] = (value, index)
     return keys

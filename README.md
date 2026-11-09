@@ -2,9 +2,25 @@
 
 Moth is a native desktop website security assessment program with optional scanner integrations, plain-language findings, technical details, and actionable recommendations.
 
-**Version 0.2 — native Qt/PySide6 desktop application.** Moth opens its own window. There is no HTTP server, browser interface, Electron shell, or embedded web view. English is the default language; Romanian and Russian are available from the language selector.
+**Version 0.2 — native Qt/PySide6 desktop application.** Moth opens its own window with native widgets, without a browser interface, Electron shell or embedded web view. English is the default language; Romanian and Russian are available from the language selector. ZAP uses an internal loopback control API when its integration is selected.
 
 ![Moth desktop application](docs/moth-interface.png)
+
+*Current desktop interface with demonstration findings for example.com; no live assessment is shown.*
+
+## Current capabilities
+
+| Area | Available now |
+| --- | --- |
+| Scan control | Low/Medium/High/Ultra profiles, per-tool progress, approximate remaining time, Stop and Skip current tool |
+| Scope | Excluded path prefixes, custom Nmap TCP ports, independent web/Nmap rates |
+| Authentication | One-assessment cookie, Bearer token or HTTP Basic sessions, with private-page verification |
+| Findings | Grouped equivalent header observations, combined source evidence, filters and priority recommendations |
+| History | Baseline comparison and targeted rechecks, with incomplete coverage kept visible |
+| Preparation | CLI/dependency diagnostics, template preparation, installed-tool detection and queued installation/update actions |
+| Reports | Local SQLite history and standalone HTML/JSON exports |
+
+[Installation](#installation) · [Assessment workflow](#assessment-workflow) · [Authenticated assessments](#authenticated-assessments) · [Scan levels](#scan-levels) · [Development and packaging](#development-and-packaging) · [Roadmap](ROADMAP.md)
 
 ## Installation
 
@@ -88,12 +104,15 @@ You can also double-click `start.bat` inside the downloaded project. It creates 
 
 ### First assessment
 
-1. Open **Tools**, click **Refresh detection** and install any optional tools you need. Installed system tools are detected automatically; queued installations run one at a time.
-2. Return to **Assessment**, enter your website URL and start with **Low**.
-3. Confirm that you own the website or have permission to assess it. For targets such as `http://127.0.0.1:3000`, also enable **Local laboratory**.
-4. Select additional installed tools if needed, then click **Start assessment**. Review **Findings**, **Errors**, **Checks & coverage**, and **ZAP Spider** for results and limitations.
+1. Open **Tools**, click **Refresh detection** and install the optional tools you need. Start with built-in checks if you do not need external scanners yet.
+2. Return to **Assessment**, enter your website URL and choose **Low** for the first assessment.
+3. Open **Scope & session** if you need excluded paths, custom TCP ports, rate settings or authentication. Session setup and compatibility limits are described below.
+4. Select additional tools and click **Check prerequisites**. Review **Diagnostics**; if High/Ultra needs Nuclei templates, use **Prepare official Nuclei templates**, then check again.
+5. Confirm that you own the target or have permission to assess it. Enable **Local laboratory** for targets such as `http://127.0.0.1:3000`; High/Ultra also require confirmation for active checks and additional ports.
+6. Click **Start assessment**. Watch the current tool's phase/progress and estimated remaining time. **Skip current tool** continues with the next tool; **Stop assessment** ends the whole run.
+7. Review **Findings**, **Errors**, **Checks & coverage**, **ZAP Spider**, **Priorities** and **Compare scans**. Select a finding and use **Recheck selected finding** after applying a fix. Export HTML/JSON through the report buttons.
 
-High/Ultra include active checks. Ultra scans all 65,535 TCP ports with Nmap at a maximum configured rate of 50 probes/second, followed by service and selected script checks; this can take substantially longer than a website-port check. Scan-time estimates are approximate.
+High/Ultra include active checks. By default, Ultra asks Nmap to scan all 65,535 TCP ports with a maximum configured port-probe rate of 50/second, followed by service and selected script checks. Custom ports/rates can be set in **Scope & session**. This can take substantially longer than a website-port check; time estimates are approximate and phase percentages are not overall assessment percentages.
 
 ### Updating an existing source installation
 
@@ -131,7 +150,8 @@ Source updates do not rebuild an existing executable in `dist/`. If your shortcu
 ## Features
 
 - Built-in HTTP(S) checks: certificate validation/expiry, HTTP use, security headers, cookie attributes and redirects.
-- Background assessments with progress, stop controls and explicit failure/partial states.
+- Background assessments with tool-reported progress, elapsed/remaining estimates, Stop/Skip controls and explicit failure/partial states.
+- Scope/session configuration, prerequisite diagnostics, grouped source evidence, priority recommendations, baseline comparisons and targeted rechecks; see the workflow guide below.
 - Searchable findings with combined severity, tool and result-type filters, visible-result counts and a reset control. Sort by severity (both directions), tool completion (both directions), tool name or finding title. New assessments record check start/end times and completion order; older assessments use their recorded sequential check order. Findings include specific plain-language explanations, visible evidence and a separate technical-details view.
 - Dedicated Errors and Checks & coverage tabs: execution failures include explanations, suggested actions and the original message; each selected tool shows its status and scope. Older saved observations receive the improved descriptions when opened.
 - Ten tool integrations, automatic detection of existing installations, optional selection and installation from the Tools page.
@@ -144,6 +164,29 @@ Source updates do not rebuild an existing executable in `dist/`. If your shortcu
 - While scanning, 18 offline tips rotate every 20 seconds across cybersecurity, Moth usage and moth natural history. Next/pause/resume controls affect only tips; source links open only on a click. All tips are available in English, Romanian and Russian.
 - Color-coded tool status badges: green for installed, amber for missing/prerequisites, blue while installing and red for errors.
 - Desktop shortcuts and a single-instance lock.
+
+## Assessment workflow
+
+- **Live tool progress:** the overview separates completed assessment stages from the running tool. Nmap reports the percentage of its current phase (port scan, service detection or scripts); ZAP reports spider/active-scan progress, sent requests and pending passive records. A phase percentage is not the percentage of the entire assessment. Other tools show output activity/bytes when available; Moth does not invent percentages for tools that do not provide one.
+- **Skip current tool:** stops that tool's process tree through the same cleanup path as Stop, keeps results from completed tools and continues to the next tool. A user-skipped assessment has incomplete coverage and a partial status. Stop still cancels the whole assessment.
+- **Grouped findings:** known equivalent missing-header observations (CSP, HSTS, frame restrictions and nosniff) on the same normalized URL are combined. The highest reported severity is retained, with every source and its evidence available. Unknown rules, distinct URLs and unrelated problems remain separate. Raw source observations remain in JSON/history.
+- **Compare scans:** the comparison tab automatically uses an earlier assessment of the same target, or you can choose a baseline. New/still-present/no-longer-reported labels require matching recorded scope, profile, tool selection/versions and session label, with completed assessments. Failed/skipped producers and pages the built-in checker did not revisit are not marked resolved. Different or incomplete coverage uses unverified observation labels. Historical records with missing configuration can therefore be unsuitable baselines.
+- **Recheck selected finding:** reruns the built-in checker and the selected finding's source integrations on its target URL. Ultra does not automatically add unrelated integrations to a targeted recheck. Existing authorization, local-lab and active-scan confirmations still apply. Rechecks keep the profile's external adapter scope; they are not a single-payload replay. The Priorities tab states whether the selected condition remains, was not reported or could not be checked completely.
+- **Scope & session:** set exact-origin excluded path prefixes (one per line), optional TCP ports/ranges, web request rate and Nmap probe rate independently of depth. Custom exclusions apply to Moth, Retire.js, Katana and ZAP; Nuclei/WAFW00F are skipped when they cannot enforce them. ZAP's automatic robots/sitemap exploration is also disabled with custom exclusions. Network/TLS/DNS probes target the server and are not URL-path checks. Built-in, Katana and ZAP crawling also avoid common destructive/logout paths. These controls are not an OS network sandbox.
+- **Priorities:** the three highest-severity grouped findings include evidence sources, explanations and next actions. A directly observed configuration is distinguished from a scanner-reported possibility. Multiple sources and high severity do not establish exploitability; errors, warnings and incomplete coverage remain visible.
+- **Diagnostics:** automatic preflight checks run before assessment requests, and **Check prerequisites** runs them separately. Checks cover selected CLI capabilities, missing tools, native ZAP add-ons when discoverable, Docker/image availability, non-empty Nuclei templates, a writable data directory and free space. Runtime/API checks still apply. Use **Diagnostics → Prepare official Nuclei templates** for High/Ultra before starting if templates are missing. This downloads templates into Moth's local data folder, without administrator access.
+
+### Authenticated assessments
+
+Open **Scope & session** and choose **Session cookie**, **Bearer token** or **HTTP Basic**. Use a dedicated test account. Enter a non-secret account label, the credentials, a same-origin private verification URL, and text visible only after login. The label identifies the session context for comparisons; it is supplied by you, not a verified account identity.
+
+Before scanning, Moth verifies that the private marker appears with credentials and is absent without them. It repeats verification around authenticated tool runs; expired/invalid sessions cause visible failures rather than a silently unauthenticated result. This does not prove every individual response within an external scan remained authenticated.
+
+Session forwarding is supported by Moth's built-in requests, Retire.js downloads, Katana and ZAP. Katana's auxiliary known-file discovery is disabled with sessions or custom exclusions because those requests do not reliably inherit the configured headers/scope. Other web adapters are explicitly skipped in session mode; DNS/TLS/port checks do not need a login. Credentials are scoped to the target origin and are not sent to external script origins. Redirects are disabled in built-in/Retire.js/Katana requests; ZAP header replacement is restricted to the exact origin.
+
+Credentials are not saved in settings, assessment history or exports and must be re-entered for each assessment/recheck. Katana/ZAP need transient header/plan files inside the private run directory (restricted permissions on POSIX); those files and raw outputs are deleted during normal completion, cancellation and failure cleanup. A process/OS crash can leave artifacts in the local data directory. Credential values are redacted from persisted findings/errors, but you should still review reports before sharing them. No browser/form login, MFA automation, cookie-jar renewal or automatic session refresh is implemented.
+
+The web rate controls Moth/Retire.js spacing, supported ProjectDiscovery CLI rate flags and ZAP active-scan delay. ZAP spider uses one worker; SSLyze/WAFW00F/service probes retain their own pacing. It is not a universal network traffic cap. Nmap's configured rate applies to its port discovery, not every subsequent service/script operation.
 
 ## Scan levels
 
@@ -158,13 +201,13 @@ Choose one of **Low / Medium / High / Ultra** above the target form; the options
 
 Medium also increases HTTP probes, DNS record types, TLS protocols and JavaScript files analyzed by Retire.js. High/Ultra enable SSLyze's default full suite, all WAFW00F signatures and all available passive Subfinder sources; Ultra adds DNS AXFR/CAA/SRV/PTR queries. Retire.js script limits are 5 / 15 / 30 / 100. There is no Moth scan-wide or tool-wide duration deadline. ZAP spider/active/passive-wait duration caps are set to zero (unlimited), Katana's crawl timer and Nmap host/NSE timers are omitted, and process execution remains cancellable. Subfinder's upstream implementation treats zero as immediate cancellation, so its positive horizon is set to 100,000,000 minutes (within Go's duration range); Moth imposes no separate deadline. Page/depth limits, rate controls, per-request network timeouts and bounded outputs remain in effect.
 
-The overview shows elapsed and approximate remaining time for the whole scan and the current tool. Estimates start from broad heuristics; after three completed runs of the same tool/profile without duration caps, they use observed durations. Older capped runs and failures are not used as training samples. If an estimate is exceeded, remaining time becomes unknown; the scanner is not stopped and the estimate is not reset to a fake countdown.
+The overview shows elapsed and approximate remaining time for the whole scan and the current tool. Estimates start from broad heuristics; after three completed runs of the same tool/profile with matching scope/rate options and without duration caps, they use observed durations. Older capped runs and failures are not used as training samples. If an estimate is exceeded, remaining time becomes unknown; the scanner is not stopped and the estimate is not reset to a fake countdown.
 
 **ZAP Spider** has its own tab, with confirmed status, discovered/visited URL counts, unique HTML-page counts and a searchable URL table. An isolated loopback ZAP API with a per-run key reads `spider/fullResults` and response headers. HTML pages are counted separately from scripts and other resources; unknown or incomplete metadata is labeled accordingly. URLs are normalized to remove credentials/query strings/fragments. Response bodies, cookies, API keys and raw scanner logs are not retained. Results survive in history/JSON/HTML, including confirmed spider data when later jobs fail. Old scans without retained spider telemetry show "not recorded" rather than inferred counts. Native and Docker runs are stopped/cleaned up through the same cancellation path; Docker exposes its API on host loopback only.
 
-Ultra selects all integrations. Compatible tools must be installed before it starts; incompatible checks (for example TLS on HTTP, or DNS/subdomain discovery for an IP address) are marked **Skipped** with their reason. Low/Medium/High use the manually selected optional tools. Levels, configured limits and scope are saved with the assessment and included in reports/Checks & coverage. Old records retain their original scope.
+Ultra selects all integrations. Adapters that are compatible with the target, session and exclusion settings must be installed before it starts; incompatible checks (for example TLS on HTTP, or DNS/subdomain discovery for an IP address) are marked **Skipped** with their reason. Low/Medium/High use the manually selected optional tools. Levels, configured limits and scope are saved with the assessment and included in reports/Checks & coverage. Old records retain their original scope.
 
-**Ultra does not mean every possible tool switch.** Login credentials, browser workflows, OS/UDP scans, brute-force/DoS, external OAST callbacks and unsupported/mutually exclusive modes are not included. A URL cannot describe those targets and dependencies. Nuclei's initial High/Ultra run downloads official templates into Moth's data directory; only signed HTTP templates are used, with disruptive tags excluded and OAST disabled. Missing prerequisites and interrupted/failed checks remain visible. Tool-level scope controls are not an OS network sandbox.
+**Ultra does not mean every possible tool switch.** Automatic browser/form login, OS/UDP scans, brute-force/DoS, external OAST callbacks and unsupported/mutually exclusive modes are not included. Manually supplied sessions are supported only by the adapters listed in the authentication section. A URL cannot describe those targets and dependencies. For High/Ultra, prepare official Nuclei HTTP templates from Diagnostics before starting; preflight blocks a normal assessment when those templates are absent or empty. Templates are stored in Moth's local data directory; only signed HTTP templates are used, with disruptive tags excluded and OAST disabled. Missing prerequisites and interrupted/failed checks remain visible. Tool-level scope controls are not an OS network sandbox.
 
 The profile implementation follows [ZAP automation](https://www.zaproxy.org/docs/desktop/addons/automation-framework/job-ascan/), [Nuclei template selection](https://docs.projectdiscovery.io/opensource/nuclei/running), and [Nmap options](https://nmap.org/book/man-briefoptions.html).
 
@@ -233,7 +276,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Native UI tests use Qt's offscreen platform and exercise actual Qt widgets: language changes, navigation, a local lab assessment, technical details, history and file exports. Engine tests cover scope checks, cancellation, redaction, installer integrity, result parsers and SQLite lifecycle. They do not install every scanner.
+Native UI tests use Qt's offscreen platform and exercise actual Qt widgets: language changes, navigation, a local lab assessment, technical details, history and file exports. Engine tests cover scope checks, scan/tool cancellation, session verification and redaction, grouping, comparison/recheck semantics, prerequisite failures, progress parsing, installer integrity, result parsers and SQLite lifecycle. They do not install every scanner. Local Linux integration checks have also exercised authenticated/excluded-path crawling with ZAP and Katana and real Nmap phase percentages on a local test server. This is not full Windows or all-scanner integration validation.
 
 Minimal Ubuntu/headless environments also need `libegl1` and `libopengl0` for Qt. The test workflow installs these system libraries before running the native widget tests.
 
@@ -252,7 +295,13 @@ Project layout:
 main.py                 Native desktop launcher
 moth/desktop.py         Qt Widgets interface
 moth/shortcuts.py       Desktop shortcut integration
-moth/engine.py          Background scan lifecycle
+moth/engine.py          Background scan lifecycle and per-tool cancellation
+moth/scan_options.py     Validated exclusions, port ranges and request rates
+moth/session.py          Ephemeral authentication and result redaction
+moth/preflight.py        Compatibility and prerequisite diagnostics
+moth/results.py          Grouping, comparisons and priorities
+moth/tool_progress.py    Tool-reported live progress
+moth/desktop_workflow.py Native scope/session, comparison and diagnostics UI
 moth/checks.py          Built-in checks
 moth/targets.py         URL validation and bounded HTTP requests
 moth/tools.py           Registry, detection and installers

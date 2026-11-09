@@ -281,7 +281,7 @@ def test_scan_level_selector_is_exclusive_and_controls_consent(window,monkeypatc
     monkeypatch.setattr(engine,'start',start)
     window.active_consent.setChecked(True)
     window.start_scan()
-    assert calls==[dict(profile='ultra',active_authorized=True)]
+    assert calls==[dict(profile='ultra',active_authorized=True,options=window.scan_options,session=None)]
     window.language_box.setCurrentIndex(window.language_box.findData('ro'))
     assert '100 de pagini' in window.profile_note.text()
 
@@ -351,7 +351,7 @@ def test_spider_details_and_current_tool_estimates_are_visible(window,qapp):
         estimates={'zap':dict(low=10,high=20,source='rough')},
         spider=dict(status='completed',html_pages=1,html_count_complete=True,discovered_urls=2,visited_urls=2,urls=[dict(url='https://example.com/page',processed=True,status_code='200',content_type='text/html'),dict(url='https://example.com/app.js',processed=True,status_code='200',content_type='application/javascript')]))
     window.render_scan()
-    assert window.result_tabs.count()==4
+    assert window.result_tabs.count()==7
     assert 'HTML pages: 1' in window.spider_summary.text()
     assert window.spider_urls.topLevelItemCount()==2
     assert 'Longer than estimated' in window.current_time.text()
@@ -359,3 +359,41 @@ def test_spider_details_and_current_tool_estimates_are_visible(window,qapp):
     assert window.spider_urls.topLevelItem(0).isHidden()
     assert not window.spider_urls.topLevelItem(1).isHidden()
     window.current['status']='completed'
+
+
+def test_workflow_options_dialog_session_fields_and_tabs(window, qapp):
+    dialog = window.make_options_dialog()
+    dialog.show()
+    qapp.processEvents()
+    assert not dialog.fields['session_value'].isEnabled()
+    dialog.auth_box.setCurrentIndex(dialog.auth_box.findData('cookie'))
+    assert dialog.fields['session_value'].isEnabled()
+    assert not dialog.fields['password'].isEnabled()
+    dialog.fields['session_value'].setText('session=TEMPORARY-SECRET')
+    dialog.fields['account_label'].setText('qa-account')
+    dialog.fields['verify_url'].setText('https://example.com/private')
+    dialog.fields['verify_marker'].setText('Private account page')
+    dialog.exclusions.setPlainText('/logout\n/admin')
+    from PySide6.QtWidgets import QDialogButtonBox
+    dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
+    assert window.pending_session.mode == 'cookie'
+    assert window.scan_options['exclude_paths'] == ['/logout', '/admin']
+    assert 'TEMPORARY-SECRET' not in str(window.settings.allKeys())
+    dialog.deleteLater()
+    qapp.processEvents()
+    window.language_box.setCurrentIndex(window.language_box.findData('ro'))
+    assert window.result_tabs.tabText(4) == 'Priorități'
+    assert window.result_tabs.tabText(5) == 'Compară scanări'
+
+
+def test_grouped_sources_filter_and_priority_summary(window):
+    from moth.findings import finding
+    window.current = dict(id='grouped-ui', target='https://example.com/', created='2026-01-01T00:00:00+00:00', status='completed', progress=100, stage='finished', tools=['zap'], steps=[dict(tool='moth',status='completed'),dict(tool='zap',status='completed')], findings=[finding('csp','https://example.com/','missing'),finding('Content Security Policy (CSP) Header Not Set','https://example.com/','rule 10038','medium',tool='zap')],errors=[],coverage={})
+    window.render_scan()
+    assert window.findings.topLevelItemCount() == 1
+    window.tool_filter.setCurrentIndex(window.tool_filter.findData('zap'))
+    assert not window.findings.topLevelItem(0).isHidden()
+    assert 'Sources: moth, zap' in window.explanation.toPlainText()
+    assert 'rule 10038' in window.explanation.toPlainText()
+    assert 'Content-Security-Policy' in window.priority_summary.toPlainText()
+    assert window.recheck_button.isEnabled()

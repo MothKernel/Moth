@@ -1,4 +1,5 @@
 """Bounded CLI adapters. Tool observations remain distinct from verified vulnerabilities."""
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -25,7 +26,7 @@ class Cancelled(Exception):
     pass
 
 
-def execute(args, directory, cancel, timeout=180, stdin=None, accepted=(0,)):
+def execute(args, directory, cancel, timeout=180, stdin=None, accepted=(0,), progress=None):
     """File-backed output avoids pipe deadlocks; process groups support cancellation."""
     log = directory / "stdout.log"
     error = directory / "stderr.log"
@@ -40,8 +41,12 @@ def execute(args, directory, cancel, timeout=180, stdin=None, accepted=(0,)):
             except BrokenPipeError:
                 pass
         deadline = time.monotonic() + timeout if timeout is not None else None
+        last_progress = 0
         try:
             while process.poll() is None:
+                if progress and time.monotonic() - last_progress >= 1:
+                    progress()
+                    last_progress = time.monotonic()
                 if cancel.wait(.15):
                     raise Cancelled()
                 if deadline is not None and time.monotonic() > deadline:
@@ -203,27 +208,43 @@ class Scripts(HTMLParser):
             self.sources += [value for key, value in attrs if key == "src" and value]
 
 
-def run_tool(tool, url, directory, cancel, allow_private=False, profile="low", progress=None):
+def run_tool(tool, url, directory, cancel, allow_private=False, profile="low", progress=None, options=None, session=None):
     from .profiles import get_profile
     from .config import TOOLS
     settings = get_profile(profile)
+    from .scan_options import validate, excluded, exclusion_regexes
+    options = validate(options)
+    headers = session.headers if session else {}
+    if excluded(url, options):
+        raise ValueError("The target URL is excluded.")
     cmd = command(tool)
     if not cmd:
         raise ValueError("Tool is not installed. Open Tools to install it.")
     directory.mkdir(parents=True, exist_ok=True)
+    directory.chmod(0o700)
     p = urlsplit(url)
     addresses = resolve(url, allow_private)
     stdin = None
     accepted = (0,)
     if tool == "httpx":
-        args = cmd + ["-u", url, "-json", "-silent", "-duc", "-status-code", "-title", "-tech-detect", "-no-fallback-scheme", "-threads", "1", "-rate-limit", "2", "-timeout", "10", "-response-size-to-read", "524288"]
+        args = cmd + ["-u", url, "-json", "-silent", "-duc", "-status-code", "-title", "-tech-detect", "-no-fallback-scheme", "-threads", "1", "-rate-limit", str(options["rate"]), "-timeout", "10", "-response-size-to-read", "524288"]
         if profile != "low":
             args += ["-content-type", "-content-length", "-ip", "-http2", "-tls-grab"]
     elif tool == "katana":
         scope = "^" + re.escape(f"{p.scheme}://{p.netloc}") + r"(?:/|$)"
-        args = cmd + ["-u", url, "-jsonl", "-silent", "-d", str(settings["depth"]), "-cs", scope, "-dr", "-c", "1", "-p", "1", "-rl", "2", "-mrs", "524288", "-iqp"]
+        args = cmd + ["-u", url, "-jsonl", "-silent", "-d", str(settings["depth"]), "-cs", scope, "-dr", "-c", "1", "-p", "1", "-rl", str(options["rate"]), "-mrs", "524288", "-iqp"]
+        args += ["-cos", r"(?i)/(?:logout|signout|delete|remove|destroy)(?:/|\?|$)"]
+        for pattern in exclusion_regexes(url, options):
+            args += ["-cos", pattern]
+        if headers:
+            header_file = directory / "session-headers.txt"
+            header_file.write_text("\n".join(k + ": " + v for k, v in headers.items()), encoding="utf-8")
+            header_file.chmod(0o600)
+            args += ["-H", str(header_file)]
         if settings["js"]:
-            args += ["-jc", "-kf", "all"]
+            args += ["-jc"]
+            if not headers and not options["exclude_paths"]:
+                args += ["-kf", "all"]
         if profile == "ultra":
             args += ["-jsl"]
     elif tool == "nuclei":
@@ -236,20 +257,20 @@ def run_tool(tool, url, directory, cancel, allow_private=False, profile="low", p
                 execute(cmd + ["-ut", "-ud", str(templates.parent)], directory, cancel, timeout=None)
             if not templates.is_dir():
                 raise ValueError("The official Nuclei HTTP templates could not be prepared.")
-        args = cmd + ["-u", url, "-t", str(templates), "-jsonl", "-silent", "-duc", "-dr", "-c", "1", "-rl", "2", "-timeout", "10", "-retries", "0", "-omit-raw"]
+        args = cmd + ["-u", url, "-t", str(templates), "-jsonl", "-silent", "-duc", "-dr", "-c", "1", "-rl", str(options["rate"]), "-timeout", "10", "-retries", "0", "-omit-raw"]
         if profile in ("high", "ultra"):
             args += ["-pt", "http", "-dut", "-ni", "-etags", "dos,fuzz,bruteforce,creds-stuffing,token-spray"]
             if profile == "high":
                 args += ["-tags", "tech,exposure,misconfig"]
     elif tool == "dnsx":
-        args = cmd + ["-json", "-silent", "-a", "-aaaa", "-cname", "-resp", "-t", "1", "-rl", "2"]
+        args = cmd + ["-json", "-silent", "-a", "-aaaa", "-cname", "-resp", "-t", "1", "-rl", str(options["rate"])]
         if profile != "low":
             args += ["-mx", "-ns", "-txt", "-soa"]
         if profile == "ultra":
             args += ["-srv", "-ptr", "-caa", "-axfr"]
         stdin = p.hostname + "\n"
     elif tool == "subfinder":
-        args = cmd + ["-d", p.hostname, "-json", "-silent", "-rl", "2", "-timeout", "10", "-max-time", str(SUBFINDER_NO_DEADLINE_MINUTES)]
+        args = cmd + ["-d", p.hostname, "-json", "-silent", "-rl", str(options["rate"]), "-timeout", "10", "-max-time", str(SUBFINDER_NO_DEADLINE_MINUTES)]
         if profile in ("high", "ultra"):
             args += ["-all"]
     elif tool == "sslyze":
@@ -269,25 +290,35 @@ def run_tool(tool, url, directory, cancel, allow_private=False, profile="low", p
     elif tool == "retire":
         source = directory / "scripts"
         source.mkdir(exist_ok=True)
-        status, headers, body, cert = fetch(url, allow_private)
+        status, headers, body, cert = fetch(url, allow_private, **({"headers": headers} if headers else {}))
         parser = Scripts()
         parser.feed(body.decode("utf-8", "replace"))
         # Analyze the page's inline scripts plus up to five same-origin scripts.
         (source / "page.js").write_bytes(body)
+        scripts_checked = 0
         for index, src in enumerate(parser.sources[:settings["scripts"]]):
             if cancel.is_set():
                 raise Cancelled()
             candidate = normalize(urljoin(url, src))
             if urlsplit(candidate).netloc != p.netloc or urlsplit(candidate).scheme != p.scheme:
                 continue
-            code, _, script, _ = fetch(candidate, allow_private)
+            if excluded(candidate, options):
+                continue
+            if cancel.wait(1 / options["rate"]):
+                raise Cancelled()
+            code, _, script, _ = fetch(candidate, allow_private, **({"headers": headers} if headers else {}))
+            scripts_checked += 1
+            if progress:
+                progress(dict(phase="scripts", scripts_checked=scripts_checked, percent=None, last_activity=datetime.now(timezone.utc).isoformat()))
             if code == 200:
                 (source / f"script-{index}.js").write_bytes(script)
         args = cmd + ["--path", str(source), "--outputformat", "json", "--outputpath", str(directory / "result.json"), "--exitwith", "0"]
     elif tool == "nmap":
-        args = cmd + (["-6"] if ":" in addresses[0] else []) + ["-sT", "-Pn", "-n", "--max-retries", "1", "--max-rate", "50"]
+        args = cmd + (["-6"] if ":" in addresses[0] else []) + ["-sT", "-Pn", "-n", "--max-retries", "1", "--max-rate", str(options["nmap_rate"]), "--stats-every", "2s", "-v"]
         port = str(p.port or (443 if p.scheme == "https" else 80))
-        if settings["ports"] == "all":
+        if options["ports"]:
+            args += ["-p", options["ports"]]
+        elif settings["ports"] == "all":
             args += ["-p", "1-65535"]
         elif settings["ports"] == "common":
             common = "21,22,23,25,53,80,110,111,135,139,143,161,389,443,445,465,587,636,993,995,1433,1521,2049,3306,3389,5432,5900,6379,8000,8080,8443,9200,27017"
@@ -305,29 +336,39 @@ def run_tool(tool, url, directory, cancel, allow_private=False, profile="low", p
         origin = f"{p.scheme}://{p.netloc}"
         context = {"name": "moth", "urls": [url], "includePaths": ["^" + re.escape(origin) + r"(?:/.*)?$"],
                    "excludePaths": [r"(?i)^" + re.escape(origin) + r"/.*(?:logout|signout|delete|destroy).*"]}
+        context["excludePaths"] += exclusion_regexes(url, options)
         jobs = [{"type": "requestor", "requests": [{"url": url, "method": "GET", "httpVersion": "HTTP/1.1"}]}]
+        if headers:
+            origin_regex = "^" + re.escape(origin) + r"(?:/.*)?$"
+            jobs.insert(0, {"type": "replacer", "rules": [dict(description="Moth session " + name, url=origin_regex, matchType="req_header", matchString=name, matchRegex=False, replacementString=value) for name, value in headers.items()]})
         if settings["spider"]:
             jobs.append({"type": "spider", "parameters": {"context": "moth", "url": url, "maxDuration": 0,
                          "maxDepth": settings["depth"], "maxChildren": settings["pages"], "threadCount": 1,
-                         "logoutAvoidance": True, "postForm": False, "processForm": True}})
+                         "logoutAvoidance": True, "postForm": False, "processForm": True, "parseRobotsTxt": not bool(options["exclude_paths"]), "parseSitemapXml": not bool(options["exclude_paths"])}})
         jobs.append({"type": "passiveScan-wait", "parameters": {"maxDuration": 0}})
         if settings["active"]:
             jobs.append({"type": "activeScan", "parameters": {"context": "moth", "url": url,
                 "maxScanDurationInMins": 0, "maxRuleDurationInMins": 0,
-                "threadPerHost": 1, "delayInMs": 250, "addQueryParam": True, "scanHeadersAllRequests": profile == "ultra"},
+                "threadPerHost": 1, "delayInMs": max(1, int(1000 / options["rate"])), "addQueryParam": True, "scanHeadersAllRequests": profile == "ultra"},
                 "policyDefinition": {"defaultStrength": "High" if profile == "ultra" else "Medium", "defaultThreshold": "Low" if profile == "ultra" else "Medium"}})
             jobs.append({"type": "passiveScan-wait", "parameters": {"maxDuration": 0}})
         jobs.append({"type": "report", "parameters": {"template": "traditional-json", "reportDir": report_dir, "reportFile": "result.json"}})
         plan = {"env": {"contexts": [context], "parameters": {"failOnError": True}}, "jobs": jobs}
     else:
         raise ValueError("Unsupported tool.")
+    # Private run directory protects transient header/configuration files.
+    directory.chmod(0o700)
     try:
         if tool == "zap":
             from .zap_runtime import run as run_zap
             run_zap(cmd, url, directory, plan, cancel, progress)
             output = ""
         else:
-            output = execute(args, directory, cancel, timeout=None, stdin=stdin, accepted=accepted)
+            kwargs = {}
+            if progress:
+                from .tool_progress import snapshot
+                kwargs['progress'] = lambda: progress(snapshot(tool, directory))
+            output = execute(args, directory, cancel, timeout=None, stdin=stdin, accepted=accepted, **kwargs)
         return parse(tool, url, output, directory)
     finally:
         # Raw output may contain cookies, request material or URLs with tokens.

@@ -142,7 +142,8 @@ def test_ultra_selects_all_integrations_and_records_incompatible_skips(monkeypat
     monkeypatch.setattr(engine,'resolve',lambda *args:['127.0.0.1'])
     monkeypatch.setattr(engine,'basic_profile',lambda *args:([],{}))
     calls=[]
-    def run_tool(tool,*args,profile,progress=None):
+    monkeypatch.setattr(engine.preflight, "inspect", lambda *args: [])
+    def run_tool(tool,*args,profile,progress=None,**kwargs):
         calls.append((tool,profile))
         return []
     monkeypatch.setattr(engine,'run_tool',run_tool)

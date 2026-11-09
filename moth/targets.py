@@ -50,7 +50,7 @@ def resolve(url, allow_private=False):
     return addresses
 
 
-def fetch(url, allow_private=False, max_bytes=512_000):
+def fetch(url, allow_private=False, max_bytes=512_000, headers=None):
     """One GET only. No proxy environment, no redirects, no unverified TLS fallback."""
     p = urlsplit(url)
     addresses = resolve(url, allow_private)
@@ -63,7 +63,7 @@ def fetch(url, allow_private=False, max_bytes=512_000):
     connection._create_connection = pinned_connection
     try:
         connection.request("GET", p.path or "/", headers={
-            "User-Agent": "Moth/0.1 (authorized website assessment)", "Accept": "text/html,*/*;q=0.5"
+            "User-Agent": "Moth/0.2 (authorized website assessment)", "Accept": "text/html,*/*;q=0.5", **(headers or {})
         })
         cert = connection.sock.getpeercert() if connection.sock and p.scheme == "https" else None
         response = connection.getresponse()

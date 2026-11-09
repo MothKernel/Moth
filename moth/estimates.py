@@ -18,17 +18,18 @@ def elapsed(started, now=None):
         return 0
 
 
-def build(profile, target, stages, history):
+def build(profile, target, stages, history, options=None, authenticated=False):
     factor={'low':1,'medium':2,'high':5,'ultra':12}[profile]
     estimates={}
     for tool in stages:
-        if incompatibility(tool,target):
+        from .scan_options import restriction
+        if incompatibility(tool,target) or (options and restriction(tool,options,authenticated)):
             estimates[tool]=dict(low=0,high=0,source='skipped',samples=0)
             continue
         samples=[]
         for scan in history:
             # Older ZAP profiles could finish at a hard cap, so do not learn from those.
-            if scan.get('profile')!=profile or not scan.get('duration_unlimited'):
+            if scan.get('profile')!=profile or not scan.get('duration_unlimited') or (options is not None and scan.get('options') != options):
                 continue
             for step in scan.get('steps',[]):
                 if step['tool']==tool and step['status']=='completed':
@@ -46,6 +47,16 @@ def build(profile, target, stages, history):
                 low,high=1500,7200
             elif tool in ('zap','nuclei') and profile=='ultra':
                 low,high=600,5400
+            if tool == 'nmap' and options:
+                if options['ports']:
+                    ports = set()
+                    for part in options['ports'].split(','):
+                        bounds = list(map(int, part.split('-')))
+                        ports.update(range(bounds[0], bounds[-1] + 1))
+                    minimum = len(ports) / options['nmap_rate']
+                    low, high = max(1, minimum), max(10, minimum * 3 + (180 if profile != 'low' else 5))
+                else:
+                    low, high = low * 50 / options['nmap_rate'], high * 50 / options['nmap_rate']
             source='rough'
         estimates[tool]=dict(low=low,high=high,source=source,samples=len(samples))
     return estimates

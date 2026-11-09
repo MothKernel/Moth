@@ -18,12 +18,12 @@ class PageLinks(HTMLParser):
             self.links.extend(value for key, value in attrs if key == "href" and value)
 
 
-def basic(url, allow_private=False, discover=None):
+def basic(url, allow_private=False, discover=None, headers=None):
     results = []
     if urlsplit(url).scheme == "http":
         results.append(finding("http", url, "URL scheme: http", "medium", "configuration"))
     try:
-        status, raw_headers, body, cert = fetch(url, allow_private)
+        status, raw_headers, body, cert = fetch(url, allow_private, **({"headers": headers} if headers else {}))
     except ssl.SSLCertVerificationError as exc:
         results.append(finding("certificate", url, str(exc), "medium", "configuration"))
         return results, {"coverage": "TLS handshake only; page not retrieved", "http_status": None}

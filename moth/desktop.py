@@ -18,6 +18,7 @@ from .config import ROOT, DATA
 from .profiles import PROFILES, scope
 from .tips import TipDeck
 from . import estimates
+from .desktop_workflow import WorkflowUI
 from .reports import render
 from .presentation import describe, error_help, evidence_text, OBSERVATIONS, finding_sort_keys
 
@@ -162,7 +163,7 @@ def clear_layout(layout):
             clear_layout(item.layout())
 
 
-class MainWindow(QMainWindow):
+class MainWindow(WorkflowUI, QMainWindow):
     def __init__(self, settings=None):
         super().__init__()
         self.settings = settings or QSettings("MothKernel", "Moth")
@@ -412,6 +413,7 @@ class MainWindow(QMainWindow):
         self.tip_card.hide()
         overview_layout.addWidget(self.tip_card)
         overview_layout.addStretch()
+        self.build_workflow_controls(form_layout, overview_layout)
         top.addWidget(overview, 2)
         self.scan_split.addWidget(scroller(upper))
         lower = self.group("results")
@@ -555,6 +557,7 @@ class MainWindow(QMainWindow):
         self.review_errors.hide()
         results_layout.addWidget(self.review_errors)
         results_layout.addWidget(self.result_tabs, 1)
+        self.build_workflow_tabs()
         self.scan_split.addWidget(lower)
         self.scan_split.setSizes([500, 360])
         layout.addWidget(self.scan_split)
@@ -663,6 +666,7 @@ class MainWindow(QMainWindow):
         self.translate()
 
     def translate(self):
+        self.progress.setFormat(self.tr_text("stage_progress") + " · %p%")
         self.profile_note.setText(self.tr_text("profile_" + self.profile + "_note"))
         self.theme_box.setItemText(0, self.tr_text("theme_light"))
         self.theme_box.setItemText(1, self.tr_text("theme_dark"))
@@ -679,6 +683,9 @@ class MainWindow(QMainWindow):
         self.tool_filter.setToolTip(self.tr_text("tools"))
         self.kind_filter.setToolTip(self.tr_text("result_type"))
         self.sort_order.setToolTip(self.tr_text("completion_order_note"))
+        for index, key in ((4, 'priorities'), (5, 'comparison'), (6, 'diagnostics')):
+            self.result_tabs.setTabText(index, self.tr_text(key))
+        self.comparison_tree.setHeaderLabels([self.tr_text('status'), self.tr_text('results'), self.tr_text('website'), self.tr_text('tools')])
         self.spider_urls.setHeaderLabels([self.tr_text("website"), "HTTP", self.tr_text("content_type"), self.tr_text("visited")])
         self.spider_search.setPlaceholderText(self.tr_text("search_spider"))
         self.error_list.setHeaderLabels([self.tr_text("tools"), self.tr_text("error_reason")])
@@ -701,8 +708,11 @@ class MainWindow(QMainWindow):
 
     def start_scan(self):
         try:
+            if self.busy_diagnostics:
+                raise ValueError(self.tr_text("diagnostics_running"))
             selected = [tool for tool, check in self.tool_checks.items() if check.isChecked()]
-            identifier = engine.start(self.target.text(), selected, self.authorized.isChecked(), self.lab.isChecked(), profile=self.profile, active_authorized=self.active_consent.isChecked())
+            identifier = engine.start(self.target.text(), selected, self.authorized.isChecked(), self.lab.isChecked(), profile=self.profile, active_authorized=self.active_consent.isChecked(), options=self.scan_options, session=self.pending_session)
+            self.pending_session = None
             self.current = storage.get(identifier)
             self._last_scan = None
             self.show_notice("")
@@ -717,6 +727,7 @@ class MainWindow(QMainWindow):
 
     def poll(self):
         try:
+            self.poll_workflow()
             if self.current and self.running():
                 self.current = storage.get(self.current["id"]) or self.current
                 self.render_scan()
@@ -770,7 +781,8 @@ class MainWindow(QMainWindow):
         running = bool(self.running())
         self.sync_tips(running)
         self.render_estimates()
-        self.start_button.setEnabled(not running)
+        self.render_workflow()
+        self.start_button.setEnabled(not running and not self.busy_diagnostics)
         self.target.setEnabled(not running)
         self.authorized.setEnabled(not running)
         self.lab.setEnabled(not running)
@@ -797,6 +809,7 @@ class MainWindow(QMainWindow):
         self.step_text.setPlainText("\n".join(step["tool"] + " — " + self.tr_text(step["status"]) for step in scan["steps"]))
         completed = sum(step["status"] == "completed" for step in scan["steps"])
         self.summary.setText(self.tr_text("assessment_summary").format(findings=len(scan["findings"]), errors=len(scan["errors"]), completed=completed, skipped=sum(step["status"] == "skipped" for step in scan["steps"]), total=len(scan.get("tools", []))+1))
+        self.summary.setText(self.summary.text() + "\n" + self.tr_text("grouped_count").format(groups=len(self.records()), raw=len(scan["findings"])))
         self.render_diagnostics()
         self.review_errors.setVisible(bool(scan["errors"]))
         new_scan = self._rendered_scan_id != scan["id"]
@@ -807,9 +820,9 @@ class MainWindow(QMainWindow):
         selected_id = selected.data(0, Qt.ItemDataRole.UserRole) if selected else None
         self.findings.clear()
         selected_item = None
-        for finding in scan["findings"]:
+        for finding in self.records():
             title = describe(finding, self.language)[0]
-            item = FindingTreeItem([self.tr_text(finding["severity"]), title, finding["tool"]])
+            item = FindingTreeItem([self.tr_text(finding["severity"]), title, ", ".join(finding.get("source_tools", [finding["tool"]]))])
             item.setData(0, Qt.ItemDataRole.UserRole, finding["id"])
             for column in range(3):
                 item.setToolTip(column, title + "\n" + finding["tool"])
@@ -825,6 +838,7 @@ class MainWindow(QMainWindow):
             self.technical.clear()
         self.sort_findings()
         self.filter_findings()
+        self.render_result_workflow()
 
     def render_estimates(self):
         scan = self.current
@@ -876,25 +890,27 @@ class MainWindow(QMainWindow):
         if not item or not self.current:
             return
         identifier = item.data(0, Qt.ItemDataRole.UserRole)
-        finding = next((f for f in self.current["findings"] if f["id"] == identifier), None)
+        finding = next((f for f in self.records() if f["id"] == identifier), None)
         if finding is None:
             return
         title, explanation, recommendation = describe(finding, self.language)
         self.result_title.setText(title)
-        body = self.tr_text("finding_metadata").format(severity=self.tr_text(finding["severity"]), tool=finding["tool"], target=finding["target"])
+        body = self.tr_text("finding_metadata").format(severity=self.tr_text(finding["severity"]), tool=", ".join(finding.get("source_tools", [finding["tool"]])), target=finding["target"])
         body += "\n\n" + self.tr_text("what_it_means") + "\n" + explanation
         body += "\n\n" + self.tr_text("observed_evidence") + "\n" + (evidence_text(finding.get("evidence", "")) or self.tr_text("no_evidence"))
         body += "\n\n" + self.tr_text("recommendation") + "\n" + recommendation
         if finding.get("source_language") == "en" and self.language != "en" and finding.get("code") not in OBSERVATIONS:
             original = finding["text"]["en"]
             body += "\n\n" + self.tr_text("english_source") + "\n" + "\n\n".join(original)
+        body += "\n\n" + self.tr_text("sources") + ": " + ", ".join(finding.get("source_tools", [finding["tool"]])) + "\n" + self.tr_text(finding.get("verification", "manual-review"))
         self.explanation.setPlainText(body)
+        self.recheck_button.setEnabled(not self.running())
         self.technical.setPlainText("\n\n".join([finding["target"], finding["tool"] + " · " + self.tr_text(finding["confidence"]), finding["evidence"], finding.get("technical", "")]))
 
     def sort_findings(self, *args):
         if self.current is None:
             return
-        keys = finding_sort_keys(self.current, self.sort_order.currentData(), self.language)
+        keys = finding_sort_keys(dict(self.current, findings=self.records()), self.sort_order.currentData(), self.language)
         selected = self.findings.currentItem()
         for index in range(self.findings.topLevelItemCount()):
             item = self.findings.topLevelItem(index)
@@ -920,14 +936,14 @@ class MainWindow(QMainWindow):
         tool = self.tool_filter.currentData()
         kind = self.kind_filter.currentData()
         visible_count = 0
-        records = {f["id"]: f for f in self.current["findings"]} if self.current else {}
+        records = {f["id"]: f for f in self.records()} if self.current else {}
         for index in range(self.findings.topLevelItemCount()):
             item = self.findings.topLevelItem(index)
             record = records.get(item.data(0, Qt.ItemDataRole.UserRole), {})
             text = " ".join(item.text(column) for column in range(3)) + " " + record.get("evidence", "")
             hidden = ((bool(query) and query not in text.casefold())
                       or (severity != "all_severities" and record.get("severity") != severity)
-                      or (tool != "all_tools" and record.get("tool") != tool)
+                      or (tool != "all_tools" and tool not in record.get("source_tools", [record.get("tool")]))
                       or (kind != "all_types" and record.get("kind") != kind))
             item.setHidden(hidden)
             visible_count += not hidden
@@ -947,7 +963,7 @@ class MainWindow(QMainWindow):
 
     def update_result_tabs(self):
         scan = self.current or {}
-        self.result_tabs.setTabText(0, self.tr_text("results") + f" ({len(scan.get('findings', []))})")
+        self.result_tabs.setTabText(0, self.tr_text("results") + f" ({len(self.records())})")
         self.result_tabs.setTabText(1, self.tr_text("errors_tab") + f" ({len(scan.get('errors', []))})")
         self.result_tabs.setTabText(2, self.tr_text("checks_tab") + f" ({len(scan.get('tools', []))+1 if scan else 0})")
 
@@ -1144,6 +1160,12 @@ class MainWindow(QMainWindow):
                 self.show_notice(str(exc))
 
     def closeEvent(self, event):
+        if self.busy_diagnostics:
+            self.workflow_cancel.set()
+            self._pending_close = True
+            event.ignore()
+            return
+        self.pending_session = None
         with engine.LOCK:
             active = list(engine.ACTIVE.values())
         if active:

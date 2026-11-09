@@ -1,24 +1,39 @@
-# Moth 0.2 status
+# Moth status and roadmap
 
-Moth is now a native Qt Widgets desktop program. Version 0.1's web server and browser frontend have been removed. The engine, saved history and installed tools are retained.
+Moth 0.2 is a native Qt Widgets desktop program. The browser frontend has been removed; local history and managed tools are retained.
 
 ## Implemented
 
-- Native desktop window, direct Python engine calls, no HTTP server or WebView.
-- English/Romanian/Russian interface with persistent language preference.
-- Assessments, progress, stop, plain-language findings and technical details.
-- Ten integration adapters, automatic system/user-path discovery and tool installation within the window. Existing native ZAP is supported without Docker.
-- Native history view and HTML/JSON save dialogs.
-- Desktop shortcut creation and single-instance protection.
-- Linux executable build and Windows executable build workflow.
-- Offscreen native widget tests and core engine tests.
+- Native desktop UI, English/Romanian/Russian, persistent light/dark theme and language preferences.
+- Ten scanner integrations, automatic installation detection, queued tool installation and update actions.
+- Low/Medium/High/Ultra profiles, approximate time estimates and recorded tool timings.
+- Real Nmap phase/ZAP progress where available; output activity for other adapters.
+- Whole-assessment Stop and Skip current tool with partial coverage retained.
+- Grouping of known equivalent header findings, with original sources and evidence preserved.
+- Baseline comparison and targeted finding rechecks, with conservative handling of mismatched/incomplete scope.
+- Excluded path prefixes, custom TCP ports and independent rate controls.
+- Ephemeral cookie/Bearer/HTTP Basic sessions for supported adapters, verified against a private page.
+- Priority recommendations, visible execution errors and coverage limits.
+- Prerequisite/CLI checks and explicit preparation of official Nuclei templates.
+- ZAP spider URL/HTML counts, local SQLite history, standalone HTML/JSON exports.
+- Desktop shortcuts, single-instance protection, local Linux packaging and Windows build workflow.
+- Native widget/core tests; local ZAP/Katana authentication and Nmap progress integration checks.
 
-## Remaining validation and improvements
+## Proposed next work — not implemented
 
-- Exercise all third-party installer/runtime combinations on clean Windows and Linux machines. Core and parser tests are not substitutes for these checks.
-- Expand reviewed Nuclei templates and translated mappings for external findings.
-- Pin supported scanner versions and test their upgrade paths.
-- Add authenticated assessment with careful secret handling.
-- Add a signed installer/update channel after executable and scanner validation.
+- Manual finding states, analyst notes, false-positive decisions and risk acceptance.
+- Saved projects/targets with reusable non-secret configuration.
+- PDF reporting for technical and nontechnical audiences.
+- Detection of rate limiting/service overload and adaptive request pacing.
+- Browser-rendered crawling for JavaScript applications.
+- OpenAPI import and selected API endpoint assessment.
+- Signed installation packages and an update channel for Moth itself.
+- Repeatable regression labs measuring findings, missed cases and false positives.
 
-Windows packaged builds do not require a separate Python installation for Moth itself. The two optional Python-based scanners still require an external Python runtime, reported explicitly by the tool manager. ZAP uses a native installation when available; Docker is needed only for its optional container. Nmap uses an existing official installation.
+## Remaining validation
+
+- Exercise every third-party installer/runtime combination on clean Windows and Linux systems.
+- Test supported scanner versions and their upgrade paths; expand reviewed translations/mappings.
+- Expand authenticated-session validation across adapters, failure modes and platform builds.
+
+Windows packages include Python/Qt for Moth itself. Optional Python-based scanners still require a separate Python runtime. Native ZAP is supported; Docker is only required for its container variant. Nmap uses a separate official installation.
